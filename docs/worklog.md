@@ -931,3 +931,138 @@ upload/
 - 阶段四：多项目关联处理（.link文件前端显示）
 - 阶段五：v3.2遗留功能完善（项目状态管理、项目文档、解锁功能）
 - 阶段六：审计日志增强（迁移操作追踪）
+
+---
+
+### Task ID: 18 - 项目管理模块优化 + 文档体系建设
+
+**日期**: 2025-02-28 (续)
+
+**背景**: 完善项目管理模块功能，建立规范的文档管理和工作规则体系
+
+**Work Log**:
+
+#### 1. 项目全局视角功能实现
+- **需求**: 管理员在项目模块级别切换视角，区分"我创建的"、"我参与的"、"全局所有"
+- **后端API**: `src/app/api/projects/route.ts`
+  - 新增 viewMode 参数: default | my_created | my_joined | global
+  - 返回项目关系标记 _relation: CREATED | JOINED | GLOBAL
+- **前端组件**: `src/components/projects/ProjectList.tsx`
+  - 添加视角切换下拉菜单（仅管理员可见）
+  - 显示项目关系标记
+
+#### 2. 项目基本信息编辑功能
+- **需求**: 支持编辑开始日期、预计结束日期、项目描述
+- **前端组件**: `src/components/projects/ProjectDetail.tsx`
+  - 项目信息Tab添加编辑按钮
+  - 编辑表单和保存逻辑
+- **后端API**: `src/app/api/projects/[id]/route.ts`
+  - 支持部分字段更新（展开运算符）
+
+#### 3. Bug修复
+- **问题**: 项目基本信息编辑无法保存
+- **原因**: 后端API使用Object.assign导致未提供字段被覆盖
+- **解决**: 使用展开运算符只更新提供的字段
+- **问题**: 错误包名 date-fiber
+- **解决**: 应为 date-fns，后移除未使用的导入
+
+#### 4. GitHub云端推送与版本管理
+- **首次推送**: 强制推送覆盖远程旧版本
+- **版本标签**: 创建 v3.3 标签并推送
+- **分支保护**: 通过GitHub API设置master分支保护规则
+  - 禁止强制推送
+  - 禁止删除分支
+
+#### 5. 文档整理与清理
+- **删除过时文档** (12个):
+  - DEVELOPMENT_PLAN_v3.1 (1).md
+  - SYSTEM_FEATURES (1).md
+  - RECOVERY_SNAPSHOT.md
+  - FULL_BACKUP.md
+  - TEST_PLAN_v3.2.md
+  - ELN开发讨论的一些记录.md
+  - ELN开发讨论记录-待规划-20260228-v1.0.md
+  - PROJECT_GLOBAL_VIEW_PLAN.md
+  - PROJECT_MODULE_REFACTOR_PLAN.md
+  - PROJECT_MODULE_FEATURES.md
+  - FILE_MANAGEMENT_TEST_GUIDE.md
+  - file-migration-report.json
+- **保留核心文档** (12个): 规划文档3个、模块文档6个、运维文档2个、开发日志1个
+- **新增文档索引**: README.md
+
+#### 6. 工作规则体系建立
+- **创建 WORK_RULES.md** (v1.1):
+  - 会话启动规则
+  - 重大改动评估规则
+  - 模块完成规则
+  - 进度保存规则
+  - 效率提升规则
+  - 风险预防规则
+- **创建 RULES_QUICK_REF.md**:
+  - 极简核心规则速查表
+  - 关键操作前快速回顾
+- **定期回顾机制**:
+  - 会话开始完整阅读WORK_RULES.md
+  - 关键操作前快速回顾RULES_QUICK_REF.md
+  - 用户提醒指令: "回顾规则"、"检查清单"
+
+#### 7. 备份恢复文档更新
+- **更新 BACKUP_RESTORE.md**:
+  - 添加版本标签管理章节
+  - 添加分支保护规则章节
+  - 添加历史版本恢复方法
+  - 更新实际操作记录
+
+**Stage Summary**:
+- 项目管理模块全局视角功能完成 ✅
+- 项目基本信息编辑功能完成 ✅
+- GitHub版本标签v3.3创建 ✅
+- 分支保护规则设置 ✅
+- 文档整理完成，保留13个核心文档 ✅
+- 工作规则体系建立完成 ✅
+- 定期回顾机制建立 ✅
+
+**文件变更清单**:
+| 文件 | 变更类型 |
+|------|----------|
+| docs/WORK_RULES.md | 新建 |
+| docs/RULES_QUICK_REF.md | 新建 |
+| docs/README.md | 新建 |
+| docs/BACKUP_RESTORE.md | 更新 |
+| src/app/api/projects/route.ts | 修改 |
+| src/app/api/projects/[id]/route.ts | 修改 |
+| src/components/projects/ProjectList.tsx | 重构 |
+| src/components/projects/ProjectDetail.tsx | 重构 |
+| src/contexts/AppContext.tsx | 修改 |
+
+---
+
+## 当前开发状态
+
+> **当前版本**: v3.3
+> **最后更新**: 2025-02-28
+
+### 已完成功能
+
+| 模块 | 功能 | 状态 |
+|------|------|------|
+| 用户管理 | 超级管理员角色 | ✅ |
+| 用户管理 | 用户管理界面 | ✅ |
+| 项目管理 | 项目角色管理 | ✅ |
+| 项目管理 | 全局视角切换 | ✅ |
+| 项目管理 | 基本信息编辑 | ✅ |
+| 实验记录 | 暂存实验功能 | ✅ |
+| 实验记录 | 审核流程 | ✅ |
+| 审核管理 | 指定审核人 | ✅ |
+| 审核管理 | 转交审核 | ✅ |
+| 文件管理 | 按项目分层存储 | ✅ |
+
+### 待开发功能
+
+| 模块 | 功能 | 优先级 |
+|------|------|--------|
+| 项目管理 | 项目状态管理增强 | P1 |
+| 项目管理 | 项目文档管理 | P1 |
+| 实验记录 | 解锁功能 | P1 |
+| 多项目关联 | .link文件前端显示 | P1 |
+| 审计日志 | 迁移操作追踪 | P2 |
