@@ -1,5 +1,5 @@
 // BioLab ELN - 生物实验室电子实验记录管理系统
-// v3.0 核心重构版本 - AI提取 + 审核流程
+// v3.3 版本 - 超级管理员 + 暂存实验 + 多项目关联
 
 generator client {
   provider = "prisma-client-js"
@@ -13,8 +13,8 @@ datasource db {
 // ==================== 用户管理 ====================
 
 enum UserRole {
+  SUPER_ADMIN   // 超级管理员（v3.3新增）
   ADMIN         // 管理员
-  PROJECT_LEAD  // 项目负责人（可审核）
   RESEARCHER    // 研究员
 }
 
@@ -36,7 +36,12 @@ model User {
   templates     Template[]
   attachments   Attachment[]
   reviewFeedbacks ReviewFeedback[]
+  reviewRequests ReviewRequest[]
+  projectMemberships ProjectMember[]
+  projectDocuments ProjectDocument[]
   auditLogs     AuditLog[]
+  unlockRequests UnlockRequest[] @relation("UnlockRequester")
+  processedUnlocks UnlockRequest[] @relation("UnlockProcessor")
 
   @@map("users")
 }
@@ -49,22 +54,81 @@ enum ProjectStatus {
   ARCHIVED
 }
 
+enum ProjectMemberRole {
+  PROJECT_LEAD  // 项目负责人
+  MEMBER        // 参与人
+  VIEWER        // 观察员
+}
+
 model Project {
   id          String        @id @default(cuid())
   name        String
   description String?
   status      ProjectStatus @default(ACTIVE)
-  startDate   DateTime?
-  endDate     DateTime?
+  
+  // 日期相关
+  startDate       DateTime?   // 开始日期
+  endDate         DateTime?   // 结束日期（保留兼容）
+  expectedEndDate DateTime?   // 预计结束日期
+  actualEndDate   DateTime?   // 真实结束日期（项目结束时记录）
+  
+  // 状态时间戳
+  completedAt DateTime?   // 结束时间
+  archivedAt  DateTime?   // 归档时间
+  
   createdAt   DateTime      @default(now())
   updatedAt   DateTime      @updatedAt
 
   ownerId     String
   owner       User          @relation("OwnedProjects", fields: [ownerId], references: [id])
   members     User[]
+  projectMembers ProjectMember[]
   experimentProjects ExperimentProject[]
+  projectDocuments ProjectDocument[]
 
   @@map("projects")
+}
+
+// 项目成员关系表
+model ProjectMember {
+  id        String            @id @default(cuid())
+  projectId String
+  userId    String
+  role      ProjectMemberRole @default(MEMBER)
+  joinedAt  DateTime          @default(now())
+
+  project   Project           @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  user      User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([projectId, userId])
+  @@map("project_members")
+}
+
+// 项目文档
+enum ProjectDocumentType {
+  PROPOSAL         // 立项报告
+  PROGRESS_REPORT  // 阶段性总结
+  FINAL_REPORT     // 结题报告
+  OTHER            // 其他文档
+}
+
+model ProjectDocument {
+  id          String              @id @default(cuid())
+  name        String
+  type        ProjectDocumentType @default(OTHER)
+  description String?
+  path        String
+  size        Int
+  createdAt   DateTime            @default(now())
+  updatedAt   DateTime            @updatedAt
+
+  projectId   String
+  project     Project             @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  uploaderId  String
+  uploader    User                @relation(fields: [uploaderId], references: [id])
+
+  @@map("project_documents")
 }
 
 // ==================== 实验记录 ====================
@@ -97,6 +161,10 @@ model Experiment {
   reviewStatus    ReviewStatus @default(DRAFT)
   completenessScore Int       @default(0)
 
+  // v3.3 新增：存储位置
+  storageLocation String?     // "draft" | 项目ID
+  primaryProjectId String?    // 主存储项目ID（多项目关联时）
+
   tags        String?
   createdAt   DateTime        @default(now())
   updatedAt   DateTime        @updatedAt
@@ -108,7 +176,9 @@ model Experiment {
   experimentProjects ExperimentProject[]
   attachments Attachment[]
   reviewFeedbacks ReviewFeedback[]
+  reviewRequests ReviewRequest[]
   versions    ExperimentVersion[]
+  unlockRequests UnlockRequest[]
 
   @@map("experiments")
 }
@@ -140,13 +210,40 @@ model ExperimentVersion {
   @@map("experiment_versions")
 }
 
-// ==================== 审核反馈 ====================
+// ==================== 审核流程 ====================
 
 enum ReviewAction {
-  APPROVE
-  REQUEST_REVISION
+  SUBMIT           // 提交审核
+  APPROVE          // 审核通过
+  REQUEST_REVISION // 要求修改
+  TRANSFER         // 转交审核
+  UNLOCK           // 解锁
 }
 
+enum ReviewRequestStatus {
+  PENDING      // 待处理
+  COMPLETED    // 已完成
+  TRANSFERRED  // 已转交
+  CANCELLED    // 已取消
+}
+
+// 审核请求（指定审核人）
+model ReviewRequest {
+  id          String              @id @default(cuid())
+  status      ReviewRequestStatus @default(PENDING)
+  note        String?             // 提交留言
+  createdAt   DateTime            @default(now())
+  updatedAt   DateTime            @updatedAt
+
+  experimentId String
+  experiment   Experiment         @relation(fields: [experimentId], references: [id], onDelete: Cascade)
+  reviewerId   String
+  reviewer     User               @relation(fields: [reviewerId], references: [id])
+
+  @@map("review_requests")
+}
+
+// 审核反馈
 model ReviewFeedback {
   id          String       @id @default(cuid())
   action      ReviewAction
@@ -159,6 +256,35 @@ model ReviewFeedback {
   reviewer     User        @relation(fields: [reviewerId], references: [id])
 
   @@map("review_feedbacks")
+}
+
+// 解锁申请
+enum UnlockRequestStatus {
+  PENDING      // 待处理
+  APPROVED     // 已批准
+  REJECTED     // 已拒绝
+  CANCELLED    // 已取消
+}
+
+model UnlockRequest {
+  id          String              @id @default(cuid())
+  reason      String              // 申请原因
+  status      UnlockRequestStatus @default(PENDING)
+  response    String?             // 审核回复
+  createdAt   DateTime            @default(now())
+  updatedAt   DateTime            @updatedAt
+  processedAt DateTime?           // 处理时间
+
+  experimentId String
+  experiment   Experiment         @relation(fields: [experimentId], references: [id], onDelete: Cascade)
+  
+  requesterId  String
+  requester    User               @relation("UnlockRequester", fields: [requesterId], references: [id])
+  
+  processorId  String?
+  processor    User?              @relation("UnlockProcessor", fields: [processorId], references: [id])
+
+  @@map("unlock_requests")
 }
 
 // ==================== 实验模板 ====================
@@ -220,6 +346,8 @@ enum AuditAction {
   SUBMIT_REVIEW
   APPROVE
   REQUEST_REVISION
+  MIGRATE_EXPERIMENT  // v3.3新增：实验迁移
+  DOWNLOAD            // 文件下载
 }
 
 model AuditLog {
@@ -227,7 +355,7 @@ model AuditLog {
   action      AuditAction
   entityType  String
   entityId    String?
-  details     String?
+  details     String?     // JSON格式的详细信息
   ipAddress   String?
   userAgent   String?
   createdAt   DateTime    @default(now())

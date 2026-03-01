@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
@@ -32,23 +32,61 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog'
-import { 
-  Plus, 
-  Search, 
-  FolderKanban,
-  MoreVertical,
-  Pencil,
-  Trash2,
-  Users,
-  Loader2
-} from 'lucide-react'
-import { useApp, Project } from '@/contexts/AppContext'
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
+  DropdownMenuSeparator,
+  DropdownMenuLabel,
 } from '@/components/ui/dropdown-menu'
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from '@/components/ui/collapsible'
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from '@/components/ui/popover'
+import { Calendar } from '@/components/ui/calendar'
+import { cn } from '@/lib/utils'
+import {
+  Plus,
+  Search,
+  FolderKanban,
+  MoreVertical,
+  Pencil,
+  Trash2,
+  Users,
+  Loader2,
+  ChevronDown,
+  ChevronRight,
+  Globe,
+  User,
+  UserPlus,
+  Star,
+  Circle,
+  CalendarIcon,
+} from 'lucide-react'
+import { useApp, Project } from '@/contexts/AppContext'
+
+// 视角类型
+type ViewMode = 'default' | 'my_created' | 'my_joined' | 'global'
+
+// 视角配置
+const viewModeConfig: Record<ViewMode, { label: string; description: string; icon: React.ReactNode }> = {
+  default: { label: '普通视角', description: '显示我创建和参与的项目', icon: <User className="w-4 h-4" /> },
+  my_created: { label: '我创建的项目', description: '只显示我作为负责人的项目', icon: <Star className="w-4 h-4" /> },
+  my_joined: { label: '我参与的项目', description: '只显示我参与的项目', icon: <UserPlus className="w-4 h-4" /> },
+  global: { label: '全局视角', description: '显示所有项目（管理员）', icon: <Globe className="w-4 h-4" /> },
+}
+
+// 带关系标记的项目类型
+interface ProjectWithRelation extends Project {
+  _relation?: 'CREATED' | 'JOINED' | 'GLOBAL'
+}
 
 interface ProjectListProps {
   onCreateProject: () => void
@@ -56,17 +94,44 @@ interface ProjectListProps {
 }
 
 export function ProjectList({ onCreateProject, onViewProject }: ProjectListProps) {
-  const { projects, createProject, updateProject, deleteProject, currentUser } = useApp()
+  const { currentUser } = useApp()
+  const [projects, setProjects] = useState<ProjectWithRelation[]>([])
+  const [isLoading, setIsLoading] = useState(true)
   const [searchTerm, setSearchTerm] = useState('')
   const [statusFilter, setStatusFilter] = useState<string>('all')
+  const [viewMode, setViewMode] = useState<ViewMode>('default')
   const [editProject, setEditProject] = useState<Project | null>(null)
   const [deleteProjectId, setDeleteProjectId] = useState<string | null>(null)
-  const [isLoading, setIsLoading] = useState(false)
+  const [isSaving, setIsSaving] = useState(false)
   const [editForm, setEditForm] = useState({
     name: '',
     description: '',
     status: 'ACTIVE' as Project['status']
   })
+
+  // 是否是管理员
+  const isAdmin = currentUser?.role === 'ADMIN' || currentUser?.role === 'SUPER_ADMIN'
+
+  // 加载项目
+  const loadProjects = async (mode: ViewMode) => {
+    setIsLoading(true)
+    try {
+      const res = await fetch(`/api/projects?viewMode=${mode}`)
+      if (res.ok) {
+        const data = await res.json()
+        setProjects(data)
+      }
+    } catch (error) {
+      console.error('Load projects error:', error)
+    } finally {
+      setIsLoading(false)
+    }
+  }
+
+  // 初始加载
+  useEffect(() => {
+    loadProjects(viewMode)
+  }, [viewMode])
 
   // 过滤项目
   const filteredProjects = projects.filter(project => {
@@ -75,6 +140,49 @@ export function ProjectList({ onCreateProject, onViewProject }: ProjectListProps
     const matchesStatus = statusFilter === 'all' || project.status === statusFilter
     return matchesSearch && matchesStatus
   })
+
+  // 按关系分组项目
+  const groupedProjects = {
+    created: filteredProjects.filter(p => p._relation === 'CREATED'),
+    joined: filteredProjects.filter(p => p._relation === 'JOINED'),
+    global: filteredProjects.filter(p => p._relation === 'GLOBAL'),
+  }
+
+  // 更新项目
+  const handleUpdateProject = async () => {
+    if (!editProject) return
+    setIsSaving(true)
+    try {
+      const res = await fetch(`/api/projects/${editProject.id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(editForm),
+      })
+      if (res.ok) {
+        setEditProject(null)
+        loadProjects(viewMode)
+      }
+    } catch (error) {
+      console.error('Update project error:', error)
+    } finally {
+      setIsSaving(false)
+    }
+  }
+
+  // 删除项目
+  const handleDelete = async () => {
+    if (!deleteProjectId) return
+    try {
+      const res = await fetch(`/api/projects/${deleteProjectId}`, { method: 'DELETE' })
+      if (res.ok) {
+        setProjects(prev => prev.filter(p => p.id !== deleteProjectId))
+      }
+    } catch (error) {
+      console.error('Delete project error:', error)
+    } finally {
+      setDeleteProjectId(null)
+    }
+  }
 
   const handleEdit = (project: Project) => {
     setEditProject(project)
@@ -85,37 +193,155 @@ export function ProjectList({ onCreateProject, onViewProject }: ProjectListProps
     })
   }
 
-  const handleUpdateProject = async () => {
-    if (!editProject) return
-    setIsLoading(true)
-    const success = await updateProject(editProject.id, editForm)
-    setIsLoading(false)
-    if (success) {
-      setEditProject(null)
-    }
-  }
-
-  const handleDelete = async () => {
-    if (deleteProjectId) {
-      await deleteProject(deleteProjectId)
-      setDeleteProjectId(null)
-    }
-  }
-
   const getStatusBadge = (status: string) => {
-    const statusMap: Record<string, { label: string; variant: 'default' | 'secondary' | 'outline' }> = {
-      ACTIVE: { label: '进行中', variant: 'default' },
-      COMPLETED: { label: '已完成', variant: 'outline' },
-      ARCHIVED: { label: '已归档', variant: 'secondary' },
+    const statusMap: Record<string, { label: string; className: string }> = {
+      ACTIVE: { label: '进行中', className: 'bg-green-100 text-green-700' },
+      COMPLETED: { label: '已完成', className: 'bg-blue-100 text-blue-700' },
+      ARCHIVED: { label: '已归档', className: 'bg-gray-100 text-gray-700' },
     }
-    const config = statusMap[status] || { label: status, variant: 'secondary' }
-    return <Badge variant={config.variant}>{config.label}</Badge>
+    const config = statusMap[status] || { label: status, className: 'bg-secondary' }
+    return <Badge className={config.className}>{config.label}</Badge>
+  }
+
+  const getRelationBadge = (relation?: 'CREATED' | 'JOINED' | 'GLOBAL') => {
+    if (!relation || relation === 'GLOBAL') return null
+    if (relation === 'CREATED') {
+      return (
+        <Badge variant="outline" className="text-xs gap-1 border-primary/30 text-primary">
+          <Star className="w-3 h-3" />
+          我创建
+        </Badge>
+      )
+    }
+    return (
+      <Badge variant="outline" className="text-xs gap-1">
+        <UserPlus className="w-3 h-3" />
+        我参与
+      </Badge>
+    )
   }
 
   const canManageProject = (project: Project) => {
-    return currentUser?.role === 'ADMIN' || 
-           currentUser?.role === 'PROJECT_LEAD' ||
+    return currentUser?.role === 'ADMIN' ||
+           currentUser?.role === 'SUPER_ADMIN' ||
            project.ownerId === currentUser?.id
+  }
+
+  // 渲染项目卡片
+  const renderProjectCard = (project: ProjectWithRelation) => (
+    <Card
+      key={project.id}
+      className="hover:border-primary/40 cursor-pointer transition-colors group"
+    >
+      <CardContent className="p-6">
+        <div className="flex items-start justify-between mb-3">
+          <div className="flex items-center gap-2" onClick={() => onViewProject(project.id)}>
+            <FolderKanban className="w-5 h-5 text-primary" />
+            <h3 className="font-semibold truncate">{project.name}</h3>
+          </div>
+          <div className="flex items-center gap-2">
+            {getStatusBadge(project.status)}
+            {getRelationBadge(project._relation)}
+            {canManageProject(project) && (
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button variant="ghost" size="icon" className="h-8 w-8 opacity-0 group-hover:opacity-100">
+                    <MoreVertical className="w-4 h-4" />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end">
+                  <DropdownMenuItem onClick={() => handleEdit(project)}>
+                    <Pencil className="w-4 h-4 mr-2" />
+                    编辑
+                  </DropdownMenuItem>
+                  <DropdownMenuItem
+                    onClick={() => setDeleteProjectId(project.id)}
+                    className="text-destructive"
+                  >
+                    <Trash2 className="w-4 h-4 mr-2" />
+                    删除
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            )}
+          </div>
+        </div>
+
+        <p className="text-muted-foreground text-sm line-clamp-2 mb-4" onClick={() => onViewProject(project.id)}>
+          {project.description || '暂无描述'}
+        </p>
+
+        <div className="flex items-center justify-between text-sm text-muted-foreground">
+          <div className="flex items-center gap-1">
+            <Users className="w-4 h-4" />
+            <span>{project.members?.length || 0} 成员</span>
+          </div>
+          <span>
+            创建于 {new Date(project.createdAt).toLocaleDateString('zh-CN')}
+          </span>
+        </div>
+      </CardContent>
+    </Card>
+  )
+
+  // 渲染项目分组
+  const renderProjectGroups = () => {
+    if (viewMode === 'global' && isAdmin) {
+      // 全局视角：按关系分组显示
+      return (
+        <div className="space-y-6">
+          {/* 我创建的项目 */}
+          {groupedProjects.created.length > 0 && (
+            <div>
+              <h3 className="text-lg font-semibold mb-3 flex items-center gap-2">
+                <Star className="w-5 h-5 text-primary" />
+                我创建的项目 ({groupedProjects.created.length})
+              </h3>
+              <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+                {groupedProjects.created.map(renderProjectCard)}
+              </div>
+            </div>
+          )}
+
+          {/* 我参与的项目 */}
+          {groupedProjects.joined.length > 0 && (
+            <div>
+              <h3 className="text-lg font-semibold mb-3 flex items-center gap-2">
+                <UserPlus className="w-5 h-5 text-blue-500" />
+                我参与的项目 ({groupedProjects.joined.length})
+              </h3>
+              <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+                {groupedProjects.joined.map(renderProjectCard)}
+              </div>
+            </div>
+          )}
+
+          {/* 其他项目 */}
+          {groupedProjects.global.length > 0 && (
+            <div>
+              <h3 className="text-lg font-semibold mb-3 flex items-center gap-2">
+                <Globe className="w-5 h-5 text-gray-500" />
+                其他项目 ({groupedProjects.global.length})
+              </h3>
+              <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+                {groupedProjects.global.map(renderProjectCard)}
+              </div>
+            </div>
+          )}
+        </div>
+      )
+    }
+
+    // 默认视角：不分组或按视图模式显示
+    if (filteredProjects.length === 0) {
+      return null
+    }
+
+    return (
+      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+        {filteredProjects.map(renderProjectCard)}
+      </div>
+    )
   }
 
   return (
@@ -128,7 +354,7 @@ export function ProjectList({ onCreateProject, onViewProject }: ProjectListProps
             管理研究项目和团队成员
           </p>
         </div>
-        {(currentUser?.role === 'ADMIN' || currentUser?.role === 'PROJECT_LEAD') && (
+        {(currentUser?.role === 'ADMIN' || currentUser?.role === 'SUPER_ADMIN') && (
           <Button onClick={onCreateProject} className="gap-2">
             <Plus className="w-4 h-4" />
             新建项目
@@ -136,7 +362,7 @@ export function ProjectList({ onCreateProject, onViewProject }: ProjectListProps
         )}
       </div>
 
-      {/* 搜索和筛选 */}
+      {/* 搜索、筛选和视角切换 */}
       <Card>
         <CardContent className="pt-6">
           <div className="flex flex-col sm:flex-row gap-4">
@@ -160,68 +386,49 @@ export function ProjectList({ onCreateProject, onViewProject }: ProjectListProps
                 <SelectItem value="ARCHIVED">已归档</SelectItem>
               </SelectContent>
             </Select>
+
+            {/* 视角切换（仅管理员可见） */}
+            {isAdmin && (
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button variant="outline" className="gap-2 w-full sm:w-auto">
+                    {viewModeConfig[viewMode].icon}
+                    {viewModeConfig[viewMode].label}
+                    <ChevronDown className="w-4 h-4" />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" className="w-56">
+                  <DropdownMenuLabel>切换视角</DropdownMenuLabel>
+                  <DropdownMenuSeparator />
+                  {Object.entries(viewModeConfig).map(([mode, config]) => (
+                    <DropdownMenuItem
+                      key={mode}
+                      onClick={() => setViewMode(mode as ViewMode)}
+                      className={viewMode === mode ? 'bg-muted' : ''}
+                    >
+                      <div className="flex items-center gap-2">
+                        {config.icon}
+                        <div>
+                          <p className="font-medium">{config.label}</p>
+                          <p className="text-xs text-muted-foreground">{config.description}</p>
+                        </div>
+                      </div>
+                    </DropdownMenuItem>
+                  ))}
+                </DropdownMenuContent>
+              </DropdownMenu>
+            )}
           </div>
         </CardContent>
       </Card>
 
       {/* 项目列表 */}
-      {filteredProjects.length > 0 ? (
-        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-          {filteredProjects.map((project) => (
-            <Card
-              key={project.id}
-              className="hover:border-primary/40 cursor-pointer transition-colors group"
-            >
-              <CardContent className="p-6">
-                <div className="flex items-start justify-between mb-3">
-                  <div className="flex items-center gap-2" onClick={() => onViewProject(project.id)}>
-                    <FolderKanban className="w-5 h-5 text-primary" />
-                    <h3 className="font-semibold truncate">{project.name}</h3>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    {getStatusBadge(project.status)}
-                    {canManageProject(project) && (
-                      <DropdownMenu>
-                        <DropdownMenuTrigger asChild>
-                          <Button variant="ghost" size="icon" className="h-8 w-8 opacity-0 group-hover:opacity-100">
-                            <MoreVertical className="w-4 h-4" />
-                          </Button>
-                        </DropdownMenuTrigger>
-                        <DropdownMenuContent align="end">
-                          <DropdownMenuItem onClick={() => handleEdit(project)}>
-                            <Pencil className="w-4 h-4 mr-2" />
-                            编辑
-                          </DropdownMenuItem>
-                          <DropdownMenuItem 
-                            onClick={() => setDeleteProjectId(project.id)}
-                            className="text-destructive"
-                          >
-                            <Trash2 className="w-4 h-4 mr-2" />
-                            删除
-                          </DropdownMenuItem>
-                        </DropdownMenuContent>
-                      </DropdownMenu>
-                    )}
-                  </div>
-                </div>
-
-                <p className="text-muted-foreground text-sm line-clamp-2 mb-4" onClick={() => onViewProject(project.id)}>
-                  {project.description || '暂无描述'}
-                </p>
-
-                <div className="flex items-center justify-between text-sm text-muted-foreground">
-                  <div className="flex items-center gap-1">
-                    <Users className="w-4 h-4" />
-                    <span>{project.members?.length || 0} 成员</span>
-                  </div>
-                  <span>
-                    创建于 {new Date(project.createdAt).toLocaleDateString('zh-CN')}
-                  </span>
-                </div>
-              </CardContent>
-            </Card>
-          ))}
+      {isLoading ? (
+        <div className="flex items-center justify-center py-12">
+          <Loader2 className="w-8 h-8 animate-spin text-muted-foreground" />
         </div>
+      ) : filteredProjects.length > 0 || (viewMode === 'global' && isAdmin) ? (
+        renderProjectGroups()
       ) : (
         <Card>
           <CardContent className="py-12">
@@ -231,13 +438,13 @@ export function ProjectList({ onCreateProject, onViewProject }: ProjectListProps
                 {searchTerm || statusFilter !== 'all' ? '未找到匹配的项目' : '暂无项目'}
               </h3>
               <p className="text-muted-foreground mb-4">
-                {searchTerm || statusFilter !== 'all' 
+                {searchTerm || statusFilter !== 'all'
                   ? '尝试调整搜索条件'
-                  : (currentUser?.role === 'ADMIN' || currentUser?.role === 'PROJECT_LEAD')
+                  : (currentUser?.role === 'ADMIN' || currentUser?.role === 'SUPER_ADMIN')
                     ? '点击下方按钮创建您的第一个项目'
                     : '等待管理员创建项目'}
               </p>
-              {!searchTerm && statusFilter === 'all' && (currentUser?.role === 'ADMIN' || currentUser?.role === 'PROJECT_LEAD') && (
+              {!searchTerm && statusFilter === 'all' && (currentUser?.role === 'ADMIN' || currentUser?.role === 'SUPER_ADMIN') && (
                 <Button onClick={onCreateProject}>
                   <Plus className="w-4 h-4 mr-2" />
                   新建项目
@@ -277,8 +484,8 @@ export function ProjectList({ onCreateProject, onViewProject }: ProjectListProps
             </div>
             <div className="space-y-2">
               <Label htmlFor="edit-status">状态</Label>
-              <Select 
-                value={editForm.status} 
+              <Select
+                value={editForm.status}
                 onValueChange={(value: Project['status']) => setEditForm(prev => ({ ...prev, status: value }))}
               >
                 <SelectTrigger>
@@ -294,8 +501,8 @@ export function ProjectList({ onCreateProject, onViewProject }: ProjectListProps
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setEditProject(null)}>取消</Button>
-            <Button onClick={handleUpdateProject} disabled={isLoading}>
-              {isLoading && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
+            <Button onClick={handleUpdateProject} disabled={isSaving}>
+              {isSaving && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
               保存
             </Button>
           </DialogFooter>

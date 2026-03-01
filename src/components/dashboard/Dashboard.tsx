@@ -14,9 +14,11 @@ import {
   Lock,
   AlertCircle,
   CheckCircle,
-  ClipboardCheck
+  ClipboardCheck,
+  AlertTriangle,
+  Archive
 } from 'lucide-react'
-import { useApp, ReviewStatus } from '@/contexts/AppContext'
+import { useApp, ReviewStatus, Experiment } from '@/contexts/AppContext'
 
 interface DashboardProps {
   onCreateExperiment: () => void
@@ -48,12 +50,31 @@ const reviewStatusConfig: Record<ReviewStatus, { label: string; color: string; i
   },
 }
 
+// 计算暂存天数
+function getDaysSinceCreation(createdAt: string): number {
+  const created = new Date(createdAt)
+  const now = new Date()
+  const diff = now.getTime() - created.getTime()
+  return Math.floor(diff / (1000 * 60 * 60 * 24))
+}
+
 export function Dashboard({ onCreateExperiment, onViewExperiment, onViewProject }: DashboardProps) {
   const { experiments, projects, currentUser } = useApp()
+
+  // 分离暂存实验和项目实验
+  const draftExperiments = experiments.filter(e => 
+    e.storageLocation === 'draft' || (!e.storageLocation && e.projects.length === 0)
+  )
+  const projectExperiments = experiments.filter(e => 
+    e.storageLocation !== 'draft' && e.projects.length > 0
+  )
 
   // 计算统计数据
   const stats = {
     totalExperiments: experiments.length,
+    projectExperiments: projectExperiments.length,
+    draftExperimentsCount: draftExperiments.length,
+    staleDraftCount: draftExperiments.filter(e => getDaysSinceCreation(e.createdAt) >= 10).length,
     draftExperiments: experiments.filter(e => e.reviewStatus === 'DRAFT').length,
     pendingReview: experiments.filter(e => e.reviewStatus === 'PENDING_REVIEW').length,
     lockedExperiments: experiments.filter(e => e.reviewStatus === 'LOCKED').length,
@@ -68,10 +89,36 @@ export function Dashboard({ onCreateExperiment, onViewExperiment, onViewProject 
 
   // 我创建的实验
   const myExperiments = experiments.filter(e => e.authorId === currentUser?.id)
+  const myDraftExperiments = draftExperiments.filter(e => e.authorId === currentUser?.id)
 
   // 待审核的实验（管理员和项目负责人可见）
   const pendingReviewExperiments = experiments.filter(e => e.reviewStatus === 'PENDING_REVIEW')
-  const canReview = currentUser?.role === 'ADMIN' || currentUser?.role === 'PROJECT_LEAD'
+  const canReview = currentUser?.role === 'ADMIN' || currentUser?.role === 'SUPER_ADMIN'
+
+  // 检查用户是否有创建实验的权限
+  const canCreateExperiment = (() => {
+    if (!currentUser) return false
+    
+    // 管理员可以创建
+    if (currentUser.role === 'ADMIN' || currentUser.role === 'SUPER_ADMIN') return true
+    
+    // 检查用户在哪些项目中有创建权限
+    for (const project of projects) {
+      // 项目创建者有权限
+      if (project.ownerId === currentUser.id) return true
+      
+      // 检查成员角色
+      const myMembership = project.members?.find(m => m.id === currentUser.id)
+      if (myMembership) {
+        const projectRole = (myMembership as any).projectRole
+        if (projectRole === 'PROJECT_LEAD' || projectRole === 'MEMBER') {
+          return true
+        }
+      }
+    }
+    
+    return false
+  })()
 
   const formatDate = (dateString: string) => {
     const date = new Date(dateString)
@@ -101,14 +148,70 @@ export function Dashboard({ onCreateExperiment, onViewExperiment, onViewProject 
             欢迎回来，{currentUser?.name}
           </p>
         </div>
-        <Button onClick={onCreateExperiment} className="gap-2">
-          <Plus className="w-4 h-4" />
-          新建实验
-        </Button>
+        {canCreateExperiment && (
+          <Button onClick={onCreateExperiment} className="gap-2">
+            <Plus className="w-4 h-4" />
+            新建实验
+          </Button>
+        )}
       </div>
 
+      {/* 暂存实验提醒 */}
+      {stats.staleDraftCount > 0 && (
+        <Card className="border-amber-200 bg-amber-50">
+          <CardContent className="pt-4">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className="p-2 bg-amber-100 rounded-full">
+                  <AlertTriangle className="w-5 h-5 text-amber-600" />
+                </div>
+                <div>
+                  <p className="font-medium text-amber-800">
+                    您有 {stats.staleDraftCount} 个暂存实验待关联项目
+                  </p>
+                  <p className="text-sm text-amber-600">
+                    这些实验已创建超过10天，请及时关联项目以便提交审核
+                  </p>
+                </div>
+              </div>
+              <Button variant="outline" className="border-amber-300 text-amber-700 hover:bg-amber-100">
+                查看暂存
+                <ChevronRight className="w-4 h-4 ml-1" />
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* 待审核提醒（仅管理员可见） */}
+      {canReview && pendingReviewExperiments.length > 0 && (
+        <Card className="border-yellow-200 bg-yellow-50">
+          <CardContent className="pt-4">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className="p-2 bg-yellow-100 rounded-full">
+                  <ClipboardCheck className="w-5 h-5 text-yellow-600" />
+                </div>
+                <div>
+                  <p className="font-medium text-yellow-800">
+                    有 {pendingReviewExperiments.length} 条实验记录等待审核
+                  </p>
+                  <p className="text-sm text-yellow-600">
+                    请及时审核以确保实验数据的合规性
+                  </p>
+                </div>
+              </div>
+              <Button variant="outline" className="border-yellow-300 text-yellow-700 hover:bg-yellow-100">
+                去审核
+                <ChevronRight className="w-4 h-4 ml-1" />
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
       {/* 统计卡片 */}
-      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-5">
         <Card className="border-primary/20 hover:border-primary/40 transition-colors">
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium">实验记录总数</CardTitle>
@@ -118,6 +221,19 @@ export function Dashboard({ onCreateExperiment, onViewExperiment, onViewProject 
             <div className="text-2xl font-bold">{stats.totalExperiments}</div>
             <p className="text-xs text-muted-foreground mt-1">
               我的实验: {myExperiments.length}
+            </p>
+          </CardContent>
+        </Card>
+        
+        <Card className="border-primary/20 hover:border-primary/40 transition-colors">
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium">暂存实验</CardTitle>
+            <Archive className="h-4 w-4 text-blue-500" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold">{stats.draftExperimentsCount}</div>
+            <p className="text-xs text-muted-foreground mt-1">
+              我的暂存: {myDraftExperiments.length}
             </p>
           </CardContent>
         </Card>
@@ -162,33 +278,6 @@ export function Dashboard({ onCreateExperiment, onViewExperiment, onViewProject 
         </Card>
       </div>
 
-      {/* 待审核提醒（仅管理员和项目负责人可见） */}
-      {canReview && pendingReviewExperiments.length > 0 && (
-        <Card className="border-yellow-200 bg-yellow-50">
-          <CardContent className="pt-4">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-3">
-                <div className="p-2 bg-yellow-100 rounded-full">
-                  <ClipboardCheck className="w-5 h-5 text-yellow-600" />
-                </div>
-                <div>
-                  <p className="font-medium text-yellow-800">
-                    有 {pendingReviewExperiments.length} 条实验记录等待审核
-                  </p>
-                  <p className="text-sm text-yellow-600">
-                    请及时审核以确保实验数据的合规性
-                  </p>
-                </div>
-              </div>
-              <Button variant="outline" className="border-yellow-300 text-yellow-700 hover:bg-yellow-100">
-                去审核
-                <ChevronRight className="w-4 h-4 ml-1" />
-              </Button>
-            </div>
-          </CardContent>
-        </Card>
-      )}
-
       {/* 最近实验记录 */}
       <Card>
         <CardHeader>
@@ -204,20 +293,39 @@ export function Dashboard({ onCreateExperiment, onViewExperiment, onViewProject 
             <div className="space-y-4">
               {recentExperiments.map((experiment) => {
                 const statusConfig = reviewStatusConfig[experiment.reviewStatus]
+                const isDraft = experiment.storageLocation === 'draft' || 
+                               (!experiment.storageLocation && experiment.projects.length === 0)
+                const daysSinceCreation = getDaysSinceCreation(experiment.createdAt)
+                const isStale = isDraft && daysSinceCreation >= 10
                 
                 return (
                   <div
                     key={experiment.id}
-                    className="flex items-center justify-between p-4 rounded-lg border border-border hover:border-primary/40 hover:bg-muted/50 cursor-pointer transition-colors"
+                    className={`flex items-center justify-between p-4 rounded-lg border transition-colors cursor-pointer ${
+                      isStale 
+                        ? 'border-amber-300 bg-amber-50/50 hover:bg-amber-50' 
+                        : 'border-border hover:border-primary/40 hover:bg-muted/50'
+                    }`}
                     onClick={() => onViewExperiment(experiment.id)}
                   >
                     <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2">
+                      <div className="flex items-center gap-2 flex-wrap">
                         <h4 className="font-medium truncate">{experiment.title}</h4>
                         <Badge className={statusConfig.color}>
                           {statusConfig.icon}
                           <span className="ml-1">{statusConfig.label}</span>
                         </Badge>
+                        {isDraft && (
+                          <Badge variant="outline" className="bg-blue-50 text-blue-700 border-blue-200">
+                            暂存
+                          </Badge>
+                        )}
+                        {isStale && (
+                          <Badge variant="outline" className="bg-amber-50 text-amber-700 border-amber-200 gap-1">
+                            <AlertTriangle className="w-3 h-3" />
+                            {daysSinceCreation}天未关联
+                          </Badge>
+                        )}
                       </div>
                       <p className="text-sm text-muted-foreground mt-1 truncate">
                         {experiment.summary || '暂无摘要'}
@@ -252,12 +360,17 @@ export function Dashboard({ onCreateExperiment, onViewExperiment, onViewProject 
               <FlaskConical className="w-12 h-12 text-muted-foreground mx-auto mb-4" />
               <h3 className="text-lg font-medium">暂无实验记录</h3>
               <p className="text-muted-foreground mt-1 mb-4">
-                点击下方按钮创建您的第一个实验记录
+                {canCreateExperiment 
+                  ? '点击下方按钮创建您的第一个实验记录'
+                  : '您当前没有创建实验的权限，请联系项目管理员'
+                }
               </p>
-              <Button onClick={onCreateExperiment}>
-                <Plus className="w-4 h-4 mr-2" />
-                新建实验
-              </Button>
+              {canCreateExperiment && (
+                <Button onClick={onCreateExperiment}>
+                  <Plus className="w-4 h-4 mr-2" />
+                  新建实验
+                </Button>
+              )}
             </div>
           )}
         </CardContent>

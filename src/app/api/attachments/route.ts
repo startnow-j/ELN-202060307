@@ -4,6 +4,11 @@ import { getUserIdFromToken } from '@/lib/auth'
 import { AttachmentCategory } from '@prisma/client'
 import fs from 'fs'
 import path from 'path'
+import { 
+  generateDraftFilePath, 
+  generateProjectFilePath, 
+  parseStorageLocation 
+} from '@/lib/file-path'
 
 // 支持的文件类型
 const ALLOWED_TYPES: Record<string, { category: AttachmentCategory; extensions: string[] }> = {
@@ -230,7 +235,12 @@ export async function POST(request: NextRequest) {
 
     // 检查实验是否存在
     const experiment = await db.experiment.findUnique({
-      where: { id: experimentId }
+      where: { id: experimentId },
+      include: {
+        experimentProjects: {
+          include: { project: true }
+        }
+      }
     })
 
     if (!experiment) {
@@ -239,7 +249,7 @@ export async function POST(request: NextRequest) {
 
     // 检查权限
     const user = await db.user.findUnique({ where: { id: userId } })
-    if (experiment.authorId !== userId && user?.role !== 'ADMIN') {
+    if (experiment.authorId !== userId && user?.role !== 'ADMIN' && user?.role !== 'SUPER_ADMIN') {
       return NextResponse.json({ error: '无权限上传附件' }, { status: 403 })
     }
 
@@ -248,23 +258,32 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: '已锁定的实验记录不能上传附件' }, { status: 403 })
     }
 
-    // 生成文件名
-    const timestamp = Date.now()
-    const randomStr = Math.random().toString(36).substring(2, 8)
-    const ext = path.extname(file.name)
-    const newFilename = `${timestamp}_${randomStr}${ext}`
-    
-    // 确保目录存在
-    const uploadDir = path.join(process.cwd(), 'upload', 'files')
-    if (!fs.existsSync(uploadDir)) {
-      fs.mkdirSync(uploadDir, { recursive: true })
+    // 准备文件数据
+    const bytes = await file.arrayBuffer()
+    const buffer = Buffer.from(bytes)
+
+    // 确定存储位置和生成文件路径
+    let filePathResult: { fullPath: string; relativePath: string; directory: string }
+
+    if (experiment.storageLocation === 'draft' || !experiment.storageLocation) {
+      // 暂存区
+      filePathResult = generateDraftFilePath(userId, experiment.title, file.name)
+    } else {
+      // 项目区
+      const primaryProject = experiment.experimentProjects.find(
+        ep => ep.projectId === experiment.primaryProjectId
+      )?.project || experiment.experimentProjects[0]?.project
+      
+      if (primaryProject) {
+        filePathResult = generateProjectFilePath(primaryProject.name, experiment.title, file.name)
+      } else {
+        // 没有项目关联，存到暂存区
+        filePathResult = generateDraftFilePath(userId, experiment.title, file.name)
+      }
     }
 
     // 保存文件
-    const filePath = path.join(uploadDir, newFilename)
-    const bytes = await file.arrayBuffer()
-    const buffer = Buffer.from(bytes)
-    fs.writeFileSync(filePath, buffer)
+    fs.writeFileSync(filePathResult.fullPath, buffer)
 
     // 提取轻量级预览数据
     const previewData = await extractPreviewData(file.name, buffer)
@@ -275,7 +294,7 @@ export async function POST(request: NextRequest) {
         name: file.name,
         type: file.type || 'application/octet-stream',
         size: file.size,
-        path: `/upload/files/${newFilename}`,
+        path: filePathResult.relativePath,
         category: getFileCategory(file.name),
         extractedText: previewData ? JSON.stringify(previewData) : null,
         experimentId,

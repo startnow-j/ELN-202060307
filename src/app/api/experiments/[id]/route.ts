@@ -2,6 +2,15 @@ import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
 import { getUserIdFromToken } from '@/lib/auth'
 import { AuditAction } from '@prisma/client'
+import { hasProjectPermission, isAdmin } from '@/lib/permissions'
+import {
+  migrateExperimentToProject,
+  createCrossProjectLink,
+  deleteCrossProjectLink,
+  shouldMigrateExperiment
+} from '@/lib/experiment-migration'
+import fs from 'fs'
+import path from 'path'
 
 // 获取单个实验记录
 export async function GET(
@@ -31,6 +40,10 @@ export async function GET(
                 },
                 members: {
                   select: { id: true, name: true, email: true, role: true, avatar: true }
+                },
+                projectMembers: {
+                  where: { userId },
+                  select: { role: true }
                 }
               }
             }
@@ -65,6 +78,8 @@ export async function GET(
       tags: experiment.tags,
       authorId: experiment.authorId,
       author: experiment.author,
+      storageLocation: experiment.storageLocation,
+      primaryProjectId: experiment.primaryProjectId,
       projects: experiment.experimentProjects.map(ep => ({
         id: ep.project.id,
         name: ep.project.name,
@@ -75,6 +90,7 @@ export async function GET(
         ownerId: ep.project.ownerId,
         owner: ep.project.owner,
         members: ep.project.members,
+        myRole: ep.project.projectMembers[0]?.role || null,
         createdAt: ep.project.createdAt.toISOString()
       })),
       attachments: experiment.attachments.map(att => ({
@@ -123,7 +139,13 @@ export async function PUT(
 
     // 检查权限
     const experiment = await db.experiment.findUnique({
-      where: { id }
+      where: { id },
+      include: {
+        attachments: true,
+        experimentProjects: {
+          include: { project: true }
+        }
+      }
     })
 
     if (!experiment) {
@@ -135,9 +157,90 @@ export async function PUT(
       return NextResponse.json({ error: '当前状态不允许编辑' }, { status: 403 })
     }
 
-    const user = await db.user.findUnique({ where: { id: userId } })
-    if (experiment.authorId !== userId && user?.role !== 'ADMIN') {
+    const adminCheck = await isAdmin(userId)
+    if (experiment.authorId !== userId && !adminCheck) {
       return NextResponse.json({ error: '无权限编辑此实验记录' }, { status: 403 })
+    }
+
+    // 处理项目关联变更
+    let newStorageLocation = experiment.storageLocation
+    let newPrimaryProjectId = experiment.primaryProjectId
+    
+    if (projectIds !== undefined) {
+      // 获取当前项目ID列表
+      const currentProjectIds = experiment.experimentProjects.map(ep => ep.projectId)
+      const newProjectIds = projectIds as string[]
+      
+      // 检查用户是否有权限在新项目中添加实验
+      for (const projectId of newProjectIds) {
+        if (!currentProjectIds.includes(projectId)) {
+          const canCreate = await hasProjectPermission(userId, projectId, 'create_experiment')
+          if (!canCreate) {
+            const project = await db.project.findUnique({
+              where: { id: projectId },
+              select: { name: true }
+            })
+            return NextResponse.json({ 
+              error: `您没有权限将实验关联到项目「${project?.name || projectId}」` 
+            }, { status: 403 })
+          }
+        }
+      }
+      
+      // 检查是否需要迁移
+      const migrationCheck = shouldMigrateExperiment(experiment.storageLocation, newProjectIds)
+      
+      if (migrationCheck.migrationType === 'draft-to-project' && newProjectIds.length > 0) {
+        // 从暂存区迁移到项目
+        const migrationResult = await migrateExperimentToProject(id, newProjectIds[0], userId)
+        
+        if (!migrationResult.success) {
+          return NextResponse.json({ 
+            error: `文件迁移失败: ${migrationResult.error}` 
+          }, { status: 500 })
+        }
+        
+        newStorageLocation = newProjectIds[0]
+        newPrimaryProjectId = newProjectIds[0]
+        
+        // 如果关联多个项目，为其他项目创建链接文件
+        for (let i = 1; i < newProjectIds.length; i++) {
+          await createCrossProjectLink(id, newProjectIds[i], userId)
+        }
+      } else {
+        // 项目关联变更，不迁移文件
+        const addedProjectIds = newProjectIds.filter(pid => !currentProjectIds.includes(pid))
+        const removedProjectIds = currentProjectIds.filter(pid => !newProjectIds.includes(pid))
+        
+        // 为新增的项目创建链接文件
+        for (const projectId of addedProjectIds) {
+          await createCrossProjectLink(id, projectId, userId)
+        }
+        
+        // 删除移除项目的链接文件
+        for (const projectId of removedProjectIds) {
+          await deleteCrossProjectLink(id, projectId)
+        }
+        
+        // 更新存储位置（如果有新的主项目）
+        if (newProjectIds.length > 0 && !newPrimaryProjectId) {
+          newPrimaryProjectId = newProjectIds[0]
+          newStorageLocation = newProjectIds[0]
+        }
+      }
+      
+      // 更新项目关联
+      await db.experimentProject.deleteMany({
+        where: { experimentId: id }
+      })
+      if (newProjectIds.length > 0) {
+        await db.experimentProject.createMany({
+          data: newProjectIds.map((projectId: string) => ({
+            experimentId: id,
+            projectId
+          }))
+        })
+      }
     }
 
     // 创建版本历史
@@ -158,7 +261,8 @@ export async function PUT(
       summary,
       conclusion,
       extractedInfo,
-      hasAttachments: (await db.attachment.count({ where: { experimentId: id } })) > 0
+      hasAttachments: experiment.attachments.length > 0,
+      hasProjects: projectIds !== undefined ? (projectIds as string[]).length > 0 : experiment.experimentProjects.length > 0
     })
 
     // 更新实验
@@ -170,7 +274,9 @@ export async function PUT(
         conclusion,
         extractedInfo: extractedInfo ? JSON.stringify(extractedInfo) : null,
         tags,
-        completenessScore: score
+        completenessScore: score,
+        storageLocation: newStorageLocation,
+        primaryProjectId: newPrimaryProjectId
       },
       include: {
         author: {
@@ -194,21 +300,6 @@ export async function PUT(
       }
     })
 
-    // 更新项目关联
-    if (projectIds !== undefined) {
-      await db.experimentProject.deleteMany({
-        where: { experimentId: id }
-      })
-      if (projectIds.length > 0) {
-        await db.experimentProject.createMany({
-          data: projectIds.map((projectId: string) => ({
-            experimentId: id,
-            projectId
-          }))
-        })
-      }
-    }
-
     // 审计日志
     await db.auditLog.create({
       data: {
@@ -216,7 +307,11 @@ export async function PUT(
         entityType: 'Experiment',
         entityId: id,
         userId,
-        details: JSON.stringify({ title: updated.title })
+        details: JSON.stringify({ 
+          title: updated.title,
+          storageLocation: newStorageLocation,
+          primaryProjectId: newPrimaryProjectId
+        })
       }
     })
 
@@ -233,6 +328,8 @@ export async function PUT(
       tags: updated.tags,
       authorId: updated.authorId,
       author: updated.author,
+      storageLocation: updated.storageLocation,
+      primaryProjectId: updated.primaryProjectId,
       projects: updated.experimentProjects.map(ep => ({
         id: ep.project.id,
         name: ep.project.name,
@@ -280,41 +377,99 @@ export async function DELETE(
     const { id } = await params
 
     const experiment = await db.experiment.findUnique({
-      where: { id }
+      where: { id },
+      include: {
+        attachments: true,
+        experimentProjects: {
+          include: { project: true }
+        }
+      }
     })
 
     if (!experiment) {
       return NextResponse.json({ error: '实验记录不存在' }, { status: 404 })
     }
 
-    const user = await db.user.findUnique({ where: { id: userId } })
-    if (experiment.authorId !== userId && user?.role !== 'ADMIN') {
+    const adminCheck = await isAdmin(userId)
+    if (experiment.authorId !== userId && !adminCheck) {
       return NextResponse.json({ error: '无权限删除此实验记录' }, { status: 403 })
     }
 
     // 不能删除已锁定的记录
     if (experiment.reviewStatus === 'LOCKED') {
-      return NextResponse.json({ error: '已锁定的实验记录不能删除' }, { status: 403 })
+      return NextResponse.json({ error: '已锁定的实验记录不能删除，请申请解锁' }, { status: 403 })
     }
 
+    // 删除关联的物理文件
+    for (const attachment of experiment.attachments) {
+      const filePath = path.join(process.cwd(), attachment.path)
+      if (fs.existsSync(filePath)) {
+        fs.unlinkSync(filePath)
+      }
+    }
+
+    // 清理空目录
+    if (experiment.attachments.length > 0) {
+      const firstAttachment = experiment.attachments[0]
+      const attachmentDir = path.dirname(path.join(process.cwd(), firstAttachment.path))
+      cleanupEmptyDirectories(attachmentDir)
+    }
+
+    // 删除跨项目链接文件
+    for (const ep of experiment.experimentProjects) {
+      if (ep.projectId !== experiment.primaryProjectId) {
+        await deleteCrossProjectLink(id, ep.projectId)
+      }
+    }
+
+    // 删除实验（级联删除数据库记录）
     await db.experiment.delete({
       where: { id }
     })
 
+    // 审计日志
     await db.auditLog.create({
       data: {
         action: AuditAction.DELETE,
         entityType: 'Experiment',
         entityId: id,
         userId,
-        details: JSON.stringify({ title: experiment.title })
+        details: JSON.stringify({ 
+          title: experiment.title,
+          storageLocation: experiment.storageLocation,
+          deletedFiles: experiment.attachments.length
+        })
       }
     })
 
-    return NextResponse.json({ success: true })
+    return NextResponse.json({ success: true, message: '实验记录已删除' })
   } catch (error) {
     console.error('Delete experiment error:', error)
     return NextResponse.json({ error: '删除实验记录失败' }, { status: 500 })
+  }
+}
+
+// 清理空目录（递归向上）
+function cleanupEmptyDirectories(dirPath: string): void {
+  try {
+    const uploadRoot = path.join(process.cwd(), 'upload')
+    let currentDir = dirPath
+    
+    while (currentDir !== uploadRoot && currentDir !== process.cwd()) {
+      if (fs.existsSync(currentDir)) {
+        const files = fs.readdirSync(currentDir)
+        if (files.length === 0) {
+          fs.rmdirSync(currentDir)
+          currentDir = path.dirname(currentDir)
+        } else {
+          break
+        }
+      } else {
+        break
+      }
+    }
+  } catch (error) {
+    console.error('Cleanup empty directories error:', error)
   }
 }
 
@@ -325,6 +480,7 @@ function calculateCompletenessScore(data: {
   conclusion?: string | null
   extractedInfo?: any
   hasAttachments?: boolean
+  hasProjects?: boolean
 }): number {
   let score = 0
 
@@ -333,44 +489,49 @@ function calculateCompletenessScore(data: {
     score += 10
   }
 
-  // 摘要 (20分)
+  // 摘要 (15分)
   if (data.summary && data.summary.trim().length >= 20) {
-    score += 20
+    score += 15
   } else if (data.summary && data.summary.trim().length > 0) {
-    score += 10
+    score += 8
   }
 
-  // 结论 (20分)
+  // 结论 (15分)
   if (data.conclusion && data.conclusion.trim().length >= 20) {
-    score += 20
+    score += 15
   } else if (data.conclusion && data.conclusion.trim().length > 0) {
-    score += 10
+    score += 8
   }
 
-  // AI提取信息 (40分)
+  // 关联项目 (15分)
+  if (data.hasProjects) {
+    score += 15
+  }
+
+  // 附件 (25分)
+  if (data.hasAttachments) {
+    score += 25
+  }
+
+  // AI提取信息 (20分)
   if (data.extractedInfo) {
     const info = data.extractedInfo
-    // 试剂信息 (10分)
+    // 试剂信息
     if (info.reagents && info.reagents.length > 0) {
-      score += Math.min(10, info.reagents.length * 2)
+      score += Math.min(5, info.reagents.length * 2)
     }
-    // 仪器信息 (10分)
+    // 仪器信息
     if (info.instruments && info.instruments.length > 0) {
-      score += Math.min(10, info.instruments.length * 2)
+      score += Math.min(5, info.instruments.length * 2)
     }
-    // 参数信息 (10分)
+    // 参数信息
     if (info.parameters && info.parameters.length > 0) {
-      score += Math.min(10, info.parameters.length * 2)
+      score += Math.min(5, info.parameters.length * 2)
     }
-    // 实验步骤 (10分)
+    // 实验步骤
     if (info.steps && info.steps.length > 0) {
-      score += Math.min(10, info.steps.length * 2)
+      score += Math.min(5, info.steps.length * 2)
     }
-  }
-
-  // 附件 (10分)
-  if (data.hasAttachments) {
-    score += 10
   }
 
   return Math.min(100, score)

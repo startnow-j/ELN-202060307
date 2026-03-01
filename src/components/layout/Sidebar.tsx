@@ -14,7 +14,10 @@ import {
   X,
   LogOut,
   User,
-  ClipboardCheck
+  ClipboardCheck,
+  Users,
+  HardDrive,
+  ListTodo
 } from 'lucide-react'
 import { useApp } from '@/contexts/AppContext'
 
@@ -25,12 +28,30 @@ interface SidebarProps {
 
 export function Sidebar({ activeTab, onTabChange }: SidebarProps) {
   const [collapsed, setCollapsed] = useState(false)
-  const { currentUser, logout, experiments } = useApp()
+  const { currentUser, logout, experiments, projects } = useApp()
 
-  // 计算待审核数量
-  const pendingReviewCount = experiments.filter(
-    e => e.reviewStatus === 'PENDING_REVIEW'
+  // 计算我的草稿数量
+  const myDraftsCount = experiments.filter(
+    e => e.reviewStatus === 'DRAFT' && e.authorId === currentUser?.id
   ).length
+
+  // 计算待我审核数量（作为项目负责人的项目中的待审核记录）
+  const myProjectsAsLead = projects.filter(p => p.ownerId === currentUser?.id)
+  const pendingMyReviewCount = experiments.filter(
+    e => {
+      if (e.reviewStatus !== 'PENDING_REVIEW') return false
+      // 检查是否是用户作为负责人的项目的实验记录
+      return e.projects.some(p => myProjectsAsLead.some(mp => mp.id === p.id))
+    }
+  ).length
+
+  // 计算待我修改数量
+  const needsMyRevisionCount = experiments.filter(
+    e => e.reviewStatus === 'NEEDS_REVISION' && e.authorId === currentUser?.id
+  ).length
+
+  // 我的任务总数量（草稿 + 待审核 + 待修改）
+  const totalTasksCount = myDraftsCount + pendingMyReviewCount + needsMyRevisionCount
 
   // 菜单项
   const menuItems = [
@@ -41,7 +62,10 @@ export function Sidebar({ activeTab, onTabChange }: SidebarProps) {
   ]
 
   // 审核管理菜单（仅管理员和项目负责人可见）
-  const showReviewMenu = currentUser?.role === 'ADMIN' || currentUser?.role === 'PROJECT_LEAD'
+  const showReviewMenu = currentUser?.role === 'SUPER_ADMIN' || currentUser?.role === 'ADMIN'
+
+  // 用户管理菜单（仅超级管理员和管理员可见）
+  const showUserMenu = currentUser?.role === 'SUPER_ADMIN' || currentUser?.role === 'ADMIN'
 
   return (
     <div className={cn(
@@ -87,6 +111,33 @@ export function Sidebar({ activeTab, onTabChange }: SidebarProps) {
             </Button>
           ))}
 
+          {/* 我的任务入口 */}
+          <div className="my-2 border-t border-sidebar-border" />
+          <Button
+            variant={activeTab === 'my-tasks' ? 'secondary' : 'ghost'}
+            className={cn(
+              "w-full justify-start gap-3 text-sidebar-foreground",
+              activeTab === 'my-tasks' && "bg-sidebar-accent text-sidebar-accent-foreground font-medium",
+              collapsed && "justify-center px-2"
+            )}
+            onClick={() => onTabChange('my-tasks')}
+          >
+            <ListTodo className="w-5 h-5 flex-shrink-0" />
+            {!collapsed && (
+              <>
+                <span>我的任务</span>
+                {totalTasksCount > 0 && (
+                  <Badge variant="destructive" className="ml-auto h-5 px-1.5 text-xs">
+                    {totalTasksCount}
+                  </Badge>
+                )}
+              </>
+            )}
+            {collapsed && totalTasksCount > 0 && (
+              <div className="absolute top-1 right-1 w-2 h-2 bg-destructive rounded-full" />
+            )}
+          </Button>
+
           {/* 审核管理入口 */}
           {showReviewMenu && (
             <>
@@ -102,21 +153,43 @@ export function Sidebar({ activeTab, onTabChange }: SidebarProps) {
                 onClick={() => onTabChange('review')}
               >
                 <ClipboardCheck className="w-5 h-5 flex-shrink-0" />
-                {!collapsed && (
-                  <>
-                    <span>审核管理</span>
-                    {pendingReviewCount > 0 && (
-                      <Badge variant="destructive" className="ml-auto h-5 px-1.5 text-xs">
-                        {pendingReviewCount}
-                      </Badge>
-                    )}
-                  </>
-                )}
-                {collapsed && pendingReviewCount > 0 && (
-                  <div className="absolute top-1 right-1 w-2 h-2 bg-destructive rounded-full" />
-                )}
+                {!collapsed && <span>审核管理</span>}
               </Button>
             </>
+          )}
+
+          {/* 用户管理入口 */}
+          {showUserMenu && (
+            <Button
+              key="users"
+              variant={activeTab === 'users' ? 'secondary' : 'ghost'}
+              className={cn(
+                "w-full justify-start gap-3 text-sidebar-foreground",
+                activeTab === 'users' && "bg-sidebar-accent text-sidebar-accent-foreground font-medium",
+                collapsed && "justify-center px-2"
+              )}
+              onClick={() => onTabChange('users')}
+            >
+              <Users className="w-5 h-5 flex-shrink-0" />
+              {!collapsed && <span>用户管理</span>}
+            </Button>
+          )}
+
+          {/* 文件管理入口 */}
+          {showUserMenu && (
+            <Button
+              key="files"
+              variant={activeTab === 'files' ? 'secondary' : 'ghost'}
+              className={cn(
+                "w-full justify-start gap-3 text-sidebar-foreground",
+                activeTab === 'files' && "bg-sidebar-accent text-sidebar-accent-foreground font-medium",
+                collapsed && "justify-center px-2"
+              )}
+              onClick={() => onTabChange('files')}
+            >
+              <HardDrive className="w-5 h-5 flex-shrink-0" />
+              {!collapsed && <span>文件管理</span>}
+            </Button>
           )}
         </nav>
       </ScrollArea>
@@ -134,8 +207,8 @@ export function Sidebar({ activeTab, onTabChange }: SidebarProps) {
                   {currentUser.name}
                 </p>
                 <p className="text-xs text-muted-foreground">
-                  {currentUser.role === 'ADMIN' ? '管理员' : 
-                   currentUser.role === 'PROJECT_LEAD' ? '项目负责人' : '研究员'}
+                  {currentUser.role === 'SUPER_ADMIN' ? '超级管理员' : 
+                   currentUser.role === 'ADMIN' ? '管理员' : '研究员'}
                 </p>
               </div>
             )}

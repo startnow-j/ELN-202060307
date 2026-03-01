@@ -64,6 +64,7 @@
     "@tiptap/pm": "^3.20.0",
     "@tiptap/react": "^3.20.0",
     "@tiptap/starter-kit": "^3.20.0",
+    "archiver": "^7.0.1",
     "bcryptjs": "^3.0.3",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
@@ -103,6 +104,7 @@
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4",
+    "@types/archiver": "^7.0.0",
     "@types/bcryptjs": "^3.0.0",
     "@types/jsonwebtoken": "^9.0.10",
     "@types/react": "^19",

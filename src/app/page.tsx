@@ -13,6 +13,9 @@ import { ProjectDetail } from '@/components/projects/ProjectDetail'
 import { ExperimentDetail } from '@/components/experiments/ExperimentDetail'
 import { TemplateList } from '@/components/templates/TemplateList'
 import { ReviewList } from '@/components/experiments/ReviewList'
+import { UserManagement } from '@/components/users/UserManagement'
+import { FileManager } from '@/components/admin/FileManager'
+import { MyTasks } from '@/components/tasks/MyTasks'
 import { CreateProjectDialog } from '@/components/projects/CreateProjectDialog'
 import { Toaster } from '@/components/ui/toaster'
 
@@ -151,10 +154,21 @@ function MainContent() {
         )
       case 'templates':
         return <TemplateList />
+      case 'my-tasks':
+        return (
+          <MyTasks 
+            onViewExperiment={handleViewExperiment}
+            onEditExperiment={handleEditExperiment}
+          />
+        )
       case 'review':
         return (
           <ReviewList onViewExperiment={handleViewExperiment} />
         )
+      case 'users':
+        return <UserManagement />
+      case 'files':
+        return <FileManager />
       default:
         return null
     }

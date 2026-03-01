@@ -25,7 +25,10 @@ export async function GET(
       return NextResponse.json({ error: '附件不存在' }, { status: 404 })
     }
 
-    const filePath = path.join(process.cwd(), attachment.path)
+    // 处理路径：移除开头的斜杠
+    const normalizedPath = attachment.path.replace(/^\/+/, '')
+    const filePath = path.join(process.cwd(), normalizedPath)
+    
     if (!fs.existsSync(filePath)) {
       return NextResponse.json({ error: '文件不存在' }, { status: 404 })
     }

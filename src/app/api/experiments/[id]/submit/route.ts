@@ -48,6 +48,13 @@ export async function POST(
       return NextResponse.json({ error: '当前状态不能提交审核' }, { status: 400 })
     }
 
+    // 暂存实验不能提交审核
+    if (experiment.storageLocation === 'draft' || experiment.experimentProjects.length === 0) {
+      return NextResponse.json({ 
+        error: '暂存实验不能提交审核，请先关联项目' 
+      }, { status: 400 })
+    }
+
     // 检查完整度
     if (experiment.completenessScore < 30) {
       return NextResponse.json({ error: '实验记录完整度不足，请补充更多信息' }, { status: 400 })

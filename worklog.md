@@ -330,3 +330,299 @@ Stage Summary:
 - 实验记录模块
 - 实验模板模块
 - 仪表盘首页
+
+---
+
+## Task ID: 6 - v3.3 我的任务模块开发
+
+**日期**: 2025-02-28
+
+**背景**: 为用户提供统一的任务管理中心，快速处理与自己相关的实验记录任务
+
+### Work Log:
+
+#### 1. 数据库模型更新 (`prisma/schema.prisma`)
+- 新增 UnlockRequestStatus 枚举: PENDING, APPROVED, REJECTED, CANCELLED
+- 新增 UnlockRequest 模型:
+  - reason: 申请原因
+  - status: 申请状态
+  - response: 审核回复
+  - createdAt, updatedAt, processedAt: 时间字段
+  - 关联: experiment, requester, processor
+
+#### 2. 后端API开发
+| 接口 | 文件 | 功能 |
+|------|------|------|
+| `/api/experiments/[id]/unlock-request` | route.ts | 提交解锁申请 |
+| `/api/experiments/[id]/feedbacks` | route.ts | 获取审核反馈历史 |
+
+#### 3. 前端组件开发
+| 组件 | 文件 | 功能 |
+|------|------|------|
+| MyTasks | src/components/tasks/MyTasks.tsx | 我的任务主组件（4个Tab） |
+| TaskListBase | src/components/tasks/TaskListBase.tsx | 基础列表组件（预留复用） |
+
+#### 4. Sidebar.tsx 更新
+- 新增"我的任务"菜单入口
+- 显示待处理任务总数徽章
+- 移除原来的子菜单展开设计，改为单一入口
+
+#### 5. 功能分类实现
+
+**我的草稿 Tab:**
+- 显示用户创建的所有草稿实验记录
+- "继续编辑"按钮直接进入编辑器
+
+**待我审核 Tab:**
+- 显示用户作为项目负责人需要审核的记录
+- "查看"按钮查看详情
+- "审核"按钮打开审核对话框
+- 支持"审核通过"/"要求修改"两种操作
+
+**待我修改 Tab:**
+- 显示被退回需要修改的记录
+- "查看反馈"按钮查看审核历史
+- "去修改"按钮进入编辑器
+
+**我的已锁定记录 Tab:**
+- 显示用户所有已锁定的记录
+- "查看"按钮查看详情
+- "申请解锁"按钮提交解锁申请
+
+#### 6. 文档编写
+- 创建 `/docs/MY_TASKS_MODULE.md` 模块文档
+- 包含功能说明、API文档、数据模型、用户流程等
+
+### Stage Summary:
+- ✅ 数据库模型扩展（UnlockRequest）
+- ✅ 解锁申请API完成
+- ✅ 反馈历史API完成
+- ✅ MyTasks组件完成（4个Tab）
+- ✅ Sidebar更新完成
+- ✅ 模块文档编写完成
+- ⏳ 待完成：解锁审批功能（审核管理模块中处理）
+
+### Git提交记录:
+```
+feat: 新增"我的任务"模块 - 统一任务管理中心
+```
+
+---
+
+## Task ID: 7 - 项目管理模块优化规划
+
+**日期**: 2025-02-28
+
+**背景**: 用户提出项目管理模块优化需求，需要重新设计项目状态流转、日期概念、项目详情页等功能
+
+### Work Log:
+
+#### 需求分析
+1. **结束日期概念分离**
+   - 新建项目的结束日期 → 预计结束日期
+   - 项目状态变为已结束 → 产生真实结束时间
+
+2. **项目状态流转增强**
+   - 进行中 → 已结束：项目负责人操作，自动锁定所有实验
+   - 已结束 → 进行中：项目负责人解锁
+   - 已结束 → 已归档：项目负责人操作
+   - 已归档 → 进行中/已结束：仅superadmin可操作
+
+3. **项目详情页重构**
+   - 项目信息Tab：基本信息展示
+   - 人员管理Tab：成员管理
+   - 项目文档Tab：上传/下载文档（立项报告、进展报告、结题报告、其他）
+   - 实验记录Tab：搜索、筛选、快速访问
+
+#### 现有实现分析
+- CreateProjectDialog: endDate字段需改为预计结束日期
+- ProjectList: 状态编辑需增加流转逻辑
+- ProjectDetail: 需重构为多Tab布局
+- 数据库: 需新增expectedEndDate、actualEndDate、completedAt、archivedAt字段
+
+#### 规划输出
+- 创建 `/docs/PROJECT_MODULE_REFACTOR_PLAN.md` 详细规划文档
+- 包含：需求分析、数据库改造方案、API设计、前端组件设计、开发任务清单
+
+### Stage Summary:
+- ✅ 完成需求分析和整理
+- ✅ 完成现有实现分析
+- ✅ 完成改造方案设计
+- ✅ 完成开发任务拆解
+- ⏳ 待开发：数据库改造 → 后端API → 前端组件 → 测试
+
+---
+
+## Task ID: 8 - 项目管理模块优化开发
+
+**日期**: 2025-02-28
+
+**背景**: 根据规划文档实施项目管理模块优化，包括日期概念分离、状态流转增强、项目详情页重构
+
+### Work Log:
+
+#### 1. 数据库模型改造
+- Project模型新增字段：
+  - `expectedEndDate` - 预计结束日期
+  - `actualEndDate` - 真实结束日期
+  - `completedAt` - 结束时间戳
+  - `archivedAt` - 归档时间戳
+- 保留`endDate`字段用于数据兼容
+- 执行 `bun run db:push` 同步数据库
+
+#### 2. 后端API开发
+- **状态变更API** `/api/projects/[id]/status`
+  - GET: 获取可用状态操作
+  - PUT: 执行状态变更
+  - 支持操作: complete, reactivate, archive, unarchive
+  - 项目结束时自动锁定所有关联实验记录
+
+- **项目文档API**
+  - GET `/api/projects/[id]/documents` - 获取文档列表
+  - POST `/api/projects/[id]/documents` - 上传文档
+  - GET `/api/projects/[id]/documents/[docId]` - 下载文档
+  - DELETE `/api/projects/[id]/documents/[docId]` - 删除文档
+
+#### 3. 权限函数扩展
+- `canCompleteProject` - 可结束项目
+- `canUnlockCompletedProject` - 可解锁已结束项目
+- `canArchiveProject` - 可归档项目
+- `canUnlockArchivedProject` - 可解锁已归档项目（仅超级管理员）
+- `getAvailableProjectStatusActions` - 获取可用操作列表
+- `canManageProjectDocuments` - 可管理项目文档
+
+#### 4. 文件路径工具更新
+- 新增 `getProjectDocumentsDir` - 获取项目文档目录
+- 新增 `generateProjectDocumentPath` - 生成项目文档路径
+
+#### 5. 前端组件改造
+- **CreateProjectDialog**: "结束日期" → "预计结束日期"，添加提示说明
+- **ProjectList**: 添加状态操作下拉菜单
+- **ProjectDetail**: 完全重构为四大Tab布局
+  - Tab 1: 项目信息 - 基本信息、日期、状态
+  - Tab 2: 人员管理 - 成员列表
+  - Tab 3: 项目文档 - 文档上传/下载/删除
+  - Tab 4: 实验记录 - 关联实验列表
+
+#### 6. AppContext类型更新
+- Project接口新增: expectedEndDate, actualEndDate, completedAt, archivedAt
+
+### Stage Summary:
+- ✅ 数据库模型改造完成
+- ✅ 状态变更API完成（含自动锁定）
+- ✅ 项目文档API完成
+- ✅ 前端CreateProjectDialog改造完成
+- ✅ 前端ProjectDetail重构完成（四大Tab）
+- ✅ 权限检查函数完善
+- ⏳ 待完善：ProjectList状态变更对话框增强
+
+### 文件变更:
+| 文件 | 变更类型 |
+|------|---------|
+| prisma/schema.prisma | 修改 |
+| src/lib/permissions.ts | 新增函数 |
+| src/lib/file-path.ts | 新增函数 |
+| src/app/api/projects/route.ts | 修改 |
+| src/app/api/projects/[id]/status/route.ts | 新建 |
+| src/app/api/projects/[id]/documents/route.ts | 新建 |
+| src/app/api/projects/[id]/documents/[docId]/route.ts | 新建 |
+| src/components/projects/CreateProjectDialog.tsx | 修改 |
+| src/components/projects/ProjectDetail.tsx | 重构 |
+| src/contexts/AppContext.tsx | 修改 |
+
+---
+
+## Task ID: 9 - 项目成员管理功能修复
+
+**日期**: 2025-02-28
+
+**背景**: 发现项目详情页中"添加成员"按钮无效
+
+### 问题分析
+- 添加成员按钮未绑定onClick事件
+- 缺少成员管理API
+- 缺少添加成员对话框
+
+### Work Log:
+
+#### 1. 新增成员管理API
+- `GET /api/projects/[id]/members` - 获取项目成员列表
+- `POST /api/projects/[id]/members` - 添加成员到项目
+- `PUT /api/projects/[id]/members/[userId]` - 更新成员角色
+- `DELETE /api/projects/[id]/members/[userId]` - 移除成员
+
+#### 2. 新增用户列表API
+- `GET /api/users` - 获取所有激活用户（用于添加成员选择）
+
+#### 3. 更新ProjectDetail组件
+- 新增添加成员对话框
+- 实现成员列表展示（含项目角色）
+- 实现成员角色修改功能
+- 实现成员移除功能
+- 支持多选用户批量添加
+- 支持用户搜索筛选
+
+### Stage Summary:
+- ✅ 成员管理API完成
+- ✅ 添加成员功能修复
+- ✅ 成员角色管理功能完成
+- ✅ 移除成员功能完成
+
+---
+
+## Task ID: 10 - 项目管理全局视角与基本信息编辑
+
+**日期**: 2025-02-28
+
+**背景**: 用户提出两个功能需求：
+1. 全局视角功能 - 项目模块级别的视角切换，区分"我创建的"、"我参与的"和"所有项目"
+2. 项目基本信息编辑 - 支持编辑开始日期、预计结束日期、项目描述
+
+### 需求讨论
+- 管理员和超级管理员默认具有所有项目的权限
+- 成员列表只显示实际参与的用户（ProjectMember表记录）
+- 全局视角下管理员可查看和操作所有项目
+
+### Work Log:
+
+#### 1. 后端API改造
+- `GET /api/projects` 支持viewMode参数
+  - viewMode: 'default' | 'my_created' | 'my_joined' | 'global'
+  - 返回项目关系标记 `_relation`: 'CREATED' | 'JOINED' | 'GLOBAL'
+- `PUT /api/projects/[id]` 支持更新startDate、expectedEndDate、description字段
+
+#### 2. 前端ProjectList组件改造
+- 新增视角切换下拉菜单（仅管理员可见）
+- 按视角分类显示项目列表
+- 全局视角下显示项目关系标记（我创建/我参与/其他）
+
+#### 3. 前端ProjectDetail组件改造
+- 项目信息Tab新增编辑按钮
+- 实现编辑模式切换
+- 添加日期选择器（开始日期、预计结束日期）
+- 添加描述编辑框
+- 项目描述始终显示（即使为空显示"暂无描述"）
+
+#### 4. AppContext类型更新
+- 新增 `ProjectRelation` 类型
+- Project接口新增 `_relation` 可选字段
+
+#### 5. 规划文档
+- 创建 `/docs/PROJECT_GLOBAL_VIEW_PLAN.md` 详细规划文档
+
+### 文件变更:
+| 文件 | 变更类型 |
+|------|---------|
+| docs/PROJECT_GLOBAL_VIEW_PLAN.md | 新建 |
+| src/app/api/projects/route.ts | 修改 |
+| src/app/api/projects/[id]/route.ts | 修改 |
+| src/components/projects/ProjectList.tsx | 重构 |
+| src/components/projects/ProjectDetail.tsx | 重构 |
+| src/contexts/AppContext.tsx | 修改 |
+
+### Stage Summary:
+- ✅ 全局视角功能完成（视角切换、项目分类显示）
+- ✅ 项目描述显示修复
+- ✅ 项目基本信息编辑功能完成（日期、描述）
+- ✅ 规划文档编写完成
+- ✅ Lint检查通过

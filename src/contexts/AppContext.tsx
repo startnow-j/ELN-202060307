@@ -5,7 +5,7 @@ import React, { createContext, useContext, useState, useEffect, ReactNode } from
 // ==================== 类型定义 ====================
 
 // 用户角色类型
-type UserRole = 'ADMIN' | 'PROJECT_LEAD' | 'RESEARCHER'
+type UserRole = 'SUPER_ADMIN' | 'ADMIN' | 'RESEARCHER'
 
 export interface AppUser {
   id: string
@@ -15,16 +15,24 @@ export interface AppUser {
   avatar: string | null
 }
 
+// 项目关系类型
+export type ProjectRelation = 'CREATED' | 'JOINED' | 'GLOBAL'
+
 export interface Project {
   id: string
   name: string
   description: string | null
   status: 'ACTIVE' | 'COMPLETED' | 'ARCHIVED'
   startDate: string | null
-  endDate: string | null
+  endDate: string | null           // 兼容字段
+  expectedEndDate: string | null   // 预计结束日期
+  actualEndDate: string | null     // 真实结束日期
+  completedAt: string | null       // 结束时间
+  archivedAt: string | null        // 归档时间
   ownerId: string
   members: AppUser[]
   createdAt: string
+  _relation?: ProjectRelation      // 项目关系标记
 }
 
 // 审核状态

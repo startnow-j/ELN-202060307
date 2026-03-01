@@ -13,7 +13,7 @@ import {
   DialogTitle,
   DialogFooter,
 } from '@/components/ui/dialog'
-import { Loader2 } from 'lucide-react'
+import { Loader2, Calendar, CalendarClock } from 'lucide-react'
 import { useApp } from '@/contexts/AppContext'
 
 interface CreateProjectDialogProps {
@@ -28,7 +28,7 @@ export function CreateProjectDialog({ open, onOpenChange }: CreateProjectDialogP
     name: '',
     description: '',
     startDate: '',
-    endDate: ''
+    expectedEndDate: ''  // 改为预计结束日期
   })
 
   const handleSubmit = async () => {
@@ -42,12 +42,12 @@ export function CreateProjectDialog({ open, onOpenChange }: CreateProjectDialogP
       name: form.name,
       description: form.description || null,
       startDate: form.startDate || null,
-      endDate: form.endDate || null
+      expectedEndDate: form.expectedEndDate || null  // 使用预计结束日期
     })
     setIsLoading(false)
 
     if (project) {
-      setForm({ name: '', description: '', startDate: '', endDate: '' })
+      setForm({ name: '', description: '', startDate: '', expectedEndDate: '' })
       onOpenChange(false)
     } else {
       alert('创建失败，请重试')
@@ -56,7 +56,7 @@ export function CreateProjectDialog({ open, onOpenChange }: CreateProjectDialogP
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent>
+      <DialogContent className="sm:max-w-lg">
         <DialogHeader>
           <DialogTitle>新建项目</DialogTitle>
           <DialogDescription>
@@ -85,7 +85,10 @@ export function CreateProjectDialog({ open, onOpenChange }: CreateProjectDialogP
           </div>
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-2">
-              <Label htmlFor="project-start">开始日期</Label>
+              <Label htmlFor="project-start" className="flex items-center gap-2">
+                <Calendar className="w-4 h-4" />
+                开始日期
+              </Label>
               <Input
                 id="project-start"
                 type="date"
@@ -94,21 +97,28 @@ export function CreateProjectDialog({ open, onOpenChange }: CreateProjectDialogP
               />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="project-end">结束日期</Label>
+              <Label htmlFor="project-expected-end" className="flex items-center gap-2">
+                <CalendarClock className="w-4 h-4" />
+                预计结束日期
+              </Label>
               <Input
-                id="project-end"
+                id="project-expected-end"
                 type="date"
-                value={form.endDate}
-                onChange={(e) => setForm(prev => ({ ...prev, endDate: e.target.value }))}
+                value={form.expectedEndDate}
+                onChange={(e) => setForm(prev => ({ ...prev, expectedEndDate: e.target.value }))}
+                min={form.startDate || undefined}
               />
             </div>
           </div>
+          <p className="text-sm text-muted-foreground">
+            💡 提示：预计结束日期为计划时间，实际结束时间将在项目状态变更为「已结束」时自动记录。
+          </p>
         </div>
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)}>取消</Button>
           <Button onClick={handleSubmit} disabled={isLoading}>
             {isLoading && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
-            创建
+            创建项目
           </Button>
         </DialogFooter>
       </DialogContent>
