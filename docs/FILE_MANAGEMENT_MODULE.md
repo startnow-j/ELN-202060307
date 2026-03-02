@@ -1,7 +1,7 @@
 # BioLab ELN 文件管理模块说明文档
 
 > **版本**: v3.3  
-> **最后更新**: 2025-03-01  
+> **最后更新**: 2025-03-02  
 > **维护者**: 开发团队
 
 ---
@@ -736,6 +736,16 @@ function formatBytes(bytes: number): string
 ---
 
 ## 10. 变更记录
+
+### v3.3 (2025-03-02)
+
+**功能修复**:
+- [x] 支持 .doc 格式文件预览提取（使用 antiword 命令行工具）
+- [x] 新增 `src/lib/fileParser.ts` 统一文件解析库
+
+**修改文件**:
+- `src/lib/fileParser.ts` - 新建，统一文件解析库
+- `src/app/api/attachments/route.ts` - 支持 .doc 文件预览
 
 ### v3.3 (2025-03-01)
 
