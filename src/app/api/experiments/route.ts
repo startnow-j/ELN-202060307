@@ -3,6 +3,7 @@ import { db } from '@/lib/db'
 import { getUserIdFromToken } from '@/lib/auth'
 import { AuditAction } from '@prisma/client'
 import { canCreateExperiment, getUserAccessibleProjects, hasProjectPermission, isAdmin } from '@/lib/permissions'
+import { calculateCompletenessScore } from '@/lib/completenessScore'
 
 // 获取实验列表
 export async function GET(request: NextRequest) {
@@ -366,12 +367,13 @@ export async function POST(request: NextRequest) {
     }
 
     // 计算完整度评分
-    let completenessScore = 10 // 标题
-    if (summary && summary.trim().length >= 20) completenessScore += 15
-    else if (summary && summary.trim().length > 0) completenessScore += 8
-    if (conclusion && conclusion.trim().length >= 20) completenessScore += 15
-    else if (conclusion && conclusion.trim().length > 0) completenessScore += 8
-    completenessScore += 15 // 关联项目
+    const completenessScore = calculateCompletenessScore({
+      title,
+      summary,
+      conclusion,
+      tags,
+      experimentProjects: projectIds.map((id: string) => ({ projectId: id }))
+    })
 
     // 创建实验（关联项目）
     const experiment = await db.experiment.create({

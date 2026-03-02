@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
 import { getUserIdFromToken } from '@/lib/auth'
+import { calculateCompletenessScore } from '@/lib/completenessScore'
 
 // 提交审核
 export async function POST(
@@ -55,13 +56,21 @@ export async function POST(
       }, { status: 400 })
     }
 
-    // 检查完整度
-    if (experiment.completenessScore < 30) {
-      return NextResponse.json({ error: '实验记录完整度不足，请补充更多信息' }, { status: 400 })
-    }
+    // 计算完整度评分（使用统一函数）
+    const score = calculateCompletenessScore({
+      title: experiment.title,
+      summary: experiment.summary,
+      conclusion: experiment.conclusion,
+      extractedInfo: experiment.extractedInfo,
+      tags: experiment.tags,
+      attachments: experiment.attachments,
+      experimentProjects: experiment.experimentProjects
+    })
 
-    // 计算完整度评分
-    const score = calculateCompletenessScore(experiment)
+    // 检查完整度 - 评分>=60 且 必须关联项目
+    if (score < 60) {
+      return NextResponse.json({ error: '实验记录完整度不足（需≥60分），请补充更多信息' }, { status: 400 })
+    }
 
     // 更新状态
     const updated = await db.experiment.update({
@@ -94,7 +103,7 @@ export async function POST(
         entityType: 'Experiment',
         entityId: id,
         userId,
-        details: JSON.stringify({ title: experiment.title })
+        details: JSON.stringify({ title: experiment.title, score })
       }
     })
 
@@ -143,52 +152,4 @@ export async function POST(
     console.error('Submit review error:', error)
     return NextResponse.json({ error: '提交失败' }, { status: 500 })
   }
-}
-
-// 计算完整度评分
-function calculateCompletenessScore(experiment: {
-  title: string
-  summary: string | null
-  conclusion: string | null
-  extractedInfo: string | null
-  attachments: unknown[]
-}): number {
-  let score = 0
-
-  // 标题 (10分)
-  if (experiment.title && experiment.title.trim().length > 0) {
-    score += 10
-  }
-
-  // 摘要 (15分)
-  if (experiment.summary && experiment.summary.trim().length >= 20) {
-    score += 15
-  } else if (experiment.summary && experiment.summary.trim().length > 0) {
-    score += 8
-  }
-
-  // 结论 (15分)
-  if (experiment.conclusion && experiment.conclusion.trim().length >= 20) {
-    score += 15
-  } else if (experiment.conclusion && experiment.conclusion.trim().length > 0) {
-    score += 8
-  }
-
-  // AI提取信息 (40分)
-  if (experiment.extractedInfo) {
-    try {
-      const info = JSON.parse(experiment.extractedInfo)
-      if (info.reagents && info.reagents.length > 0) score += 10
-      if (info.instruments && info.instruments.length > 0) score += 10
-      if (info.parameters && info.parameters.length > 0) score += 10
-      if (info.steps && info.steps.length > 0) score += 10
-    } catch {}
-  }
-
-  // 附件 (20分)
-  if (experiment.attachments.length > 0) {
-    score += Math.min(20, experiment.attachments.length * 10)
-  }
-
-  return Math.min(100, score)
 }

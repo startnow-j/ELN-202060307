@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
-import { getCurrentUser } from '@/lib/auth'
+import { getUserIdFromToken } from '@/lib/auth'
 
 // GET - 获取实验记录的审核反馈历史
 export async function GET(
@@ -8,8 +8,8 @@ export async function GET(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const user = await getCurrentUser()
-    if (!user) {
+    const userId = await getUserIdFromToken(request)
+    if (!userId) {
       return NextResponse.json({ error: '未登录' }, { status: 401 })
     }
 

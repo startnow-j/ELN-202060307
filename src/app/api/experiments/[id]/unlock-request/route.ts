@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
-import { getCurrentUser } from '@/lib/auth'
+import { getUserIdFromToken } from '@/lib/auth'
 
 // POST - 创建解锁申请
 export async function POST(
@@ -8,8 +8,8 @@ export async function POST(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const user = await getCurrentUser()
-    if (!user) {
+    const userId = await getUserIdFromToken(request)
+    if (!userId) {
       return NextResponse.json({ error: '未登录' }, { status: 401 })
     }
 
@@ -41,7 +41,7 @@ export async function POST(
     }
 
     // 检查是否是作者
-    if (experiment.authorId !== user.id) {
+    if (experiment.authorId !== userId) {
       return NextResponse.json({ error: '只有作者才能申请解锁' }, { status: 403 })
     }
 
@@ -54,7 +54,7 @@ export async function POST(
     const existingRequest = await db.unlockRequest.findFirst({
       where: {
         experimentId,
-        requesterId: user.id,
+        requesterId: userId,
         status: 'PENDING'
       }
     })
@@ -68,7 +68,7 @@ export async function POST(
       data: {
         reason: reason.trim(),
         experimentId,
-        requesterId: user.id
+        requesterId: userId
       },
       include: {
         experiment: {
@@ -96,7 +96,7 @@ export async function POST(
           experimentTitle: experiment.title,
           reason: reason.trim()
         }),
-        userId: user.id
+        userId: userId
       }
     })
 

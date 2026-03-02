@@ -1235,18 +1235,18 @@ export function FileManager() {
               <Trash2 className="w-5 h-5 text-destructive" />
               清理孤立文件
             </AlertDialogTitle>
-            <AlertDialogDescription className="space-y-2">
-              <span className="block">将清理以下类型的孤立文件：</span>
-              <ul className="list-disc list-inside text-muted-foreground space-y-1">
-                <li>已删除用户的残留目录</li>
-                <li>已删除项目的残留目录</li>
-                <li>统一存储目录中的孤立文件</li>
-              </ul>
-              <span className="block text-amber-500 font-medium">
-                此操作不可逆，请确认已备份重要数据。
-              </span>
-            </AlertDialogDescription>
           </AlertDialogHeader>
+          <div className="space-y-2 text-sm text-muted-foreground">
+            <span className="block">将清理以下类型的孤立文件：</span>
+            <ul className="list-disc list-inside space-y-1">
+              <li>已删除用户的残留目录</li>
+              <li>已删除项目的残留目录</li>
+              <li>统一存储目录中的孤立文件</li>
+            </ul>
+            <span className="block text-amber-500 font-medium">
+              此操作不可逆，请确认已备份重要数据。
+            </span>
+          </div>
           <AlertDialogFooter>
             <AlertDialogCancel>取消</AlertDialogCancel>
             <AlertDialogAction

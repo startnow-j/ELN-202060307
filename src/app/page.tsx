@@ -84,6 +84,18 @@ function MainContent() {
     setIsCreatingExperiment(false)
   }
 
+  // 切换Tab时清除详情状态（允许从详情页直接导航到其他模块）
+  const handleTabChange = (tab: string) => {
+    // 清除所有详情/编辑状态
+    setEditingExperimentId(null)
+    setViewingExperimentId(null)
+    setViewingProjectId(null)
+    setIsCreatingExperiment(false)
+    setIsCreatingProject(false)
+    // 切换Tab
+    setActiveTab(tab)
+  }
+
   // 渲染内容
   const renderContent = () => {
     // 实验编辑器
@@ -176,7 +188,7 @@ function MainContent() {
 
   return (
     <div className="flex h-screen bg-background">
-      <Sidebar activeTab={activeTab} onTabChange={setActiveTab} />
+      <Sidebar activeTab={activeTab} onTabChange={handleTabChange} />
       <div className="flex-1 flex flex-col overflow-hidden">
         <Header onCreateExperiment={handleCreateExperiment} />
         <main className="flex-1 overflow-auto">

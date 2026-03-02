@@ -83,7 +83,13 @@ export function ExtractedInfoPanel({
     setIsExtracting(true)
     setShowFileSelector(false)
     try {
-      await onExtract(selectedAttachments)
+      const success = await onExtract(selectedAttachments)
+      if (!success) {
+        alert('AI提取失败，请重试')
+      }
+    } catch (error) {
+      console.error('Extract error:', error)
+      alert(error instanceof Error ? error.message : 'AI提取失败，请重试')
     } finally {
       setIsExtracting(false)
     }

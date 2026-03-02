@@ -369,11 +369,11 @@ function ExperimentCardList({
                 </div>
                 
                 <div className="flex items-center gap-4 ml-4">
-                  {/* 完整度评分 */}
+                  {/* 评分 */}
                   <div className="flex flex-col items-center gap-1">
-                    <span className="text-xs text-muted-foreground">完整度</span>
+                    <span className="text-xs text-muted-foreground">评分</span>
                     <span className={`text-lg font-bold ${getScoreColor(experiment.completenessScore)}`}>
-                      {experiment.completenessScore}%
+                      {experiment.completenessScore}
                     </span>
                     <Progress value={experiment.completenessScore} className="w-16 h-1.5" />
                   </div>
