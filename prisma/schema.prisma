@@ -65,17 +65,20 @@ model Project {
   name        String
   description String?
   status      ProjectStatus @default(ACTIVE)
-  
+
   // 日期相关
   startDate       DateTime?   // 开始日期
   endDate         DateTime?   // 结束日期（保留兼容）
   expectedEndDate DateTime?   // 预计结束日期
   actualEndDate   DateTime?   // 真实结束日期（项目结束时记录）
-  
+
   // 状态时间戳
   completedAt DateTime?   // 结束时间
   archivedAt  DateTime?   // 归档时间
-  
+
+  // 项目负责人信息
+  primaryLeader   String?   // 项目主负责人（手写填入）
+
   createdAt   DateTime      @default(now())
   updatedAt   DateTime      @updatedAt
 

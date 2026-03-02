@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef, useCallback } from 'react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
@@ -41,18 +41,6 @@ import {
   DropdownMenuLabel,
 } from '@/components/ui/dropdown-menu'
 import {
-  Collapsible,
-  CollapsibleContent,
-  CollapsibleTrigger,
-} from '@/components/ui/collapsible'
-import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from '@/components/ui/popover'
-import { Calendar } from '@/components/ui/calendar'
-import { cn } from '@/lib/utils'
-import {
   Plus,
   Search,
   FolderKanban,
@@ -62,24 +50,19 @@ import {
   Users,
   Loader2,
   ChevronDown,
-  ChevronRight,
   Globe,
   User,
-  UserPlus,
   Star,
-  Circle,
-  CalendarIcon,
+  UserPlus,
 } from 'lucide-react'
 import { useApp, Project } from '@/contexts/AppContext'
 
 // 视角类型
-type ViewMode = 'default' | 'my_created' | 'my_joined' | 'global'
+type ViewMode = 'default' | 'global'
 
 // 视角配置
 const viewModeConfig: Record<ViewMode, { label: string; description: string; icon: React.ReactNode }> = {
   default: { label: '普通视角', description: '显示我创建和参与的项目', icon: <User className="w-4 h-4" /> },
-  my_created: { label: '我创建的项目', description: '只显示我作为负责人的项目', icon: <Star className="w-4 h-4" /> },
-  my_joined: { label: '我参与的项目', description: '只显示我参与的项目', icon: <UserPlus className="w-4 h-4" /> },
   global: { label: '全局视角', description: '显示所有项目（管理员）', icon: <Globe className="w-4 h-4" /> },
 }
 
@@ -94,11 +77,12 @@ interface ProjectListProps {
 }
 
 export function ProjectList({ onCreateProject, onViewProject }: ProjectListProps) {
-  const { currentUser } = useApp()
+  const { currentUser, projects: contextProjects } = useApp()
   const [projects, setProjects] = useState<ProjectWithRelation[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [searchTerm, setSearchTerm] = useState('')
   const [statusFilter, setStatusFilter] = useState<string>('all')
+  // 管理员默认使用全局视角，普通用户使用普通视角
   const [viewMode, setViewMode] = useState<ViewMode>('default')
   const [editProject, setEditProject] = useState<Project | null>(null)
   const [deleteProjectId, setDeleteProjectId] = useState<string | null>(null)
@@ -108,12 +92,20 @@ export function ProjectList({ onCreateProject, onViewProject }: ProjectListProps
     description: '',
     status: 'ACTIVE' as Project['status']
   })
+  const prevProjectsLengthRef = useRef(0)  // 用于检测项目数量变化
 
   // 是否是管理员
   const isAdmin = currentUser?.role === 'ADMIN' || currentUser?.role === 'SUPER_ADMIN'
 
+  // 根据用户角色自动设置默认视角
+  useEffect(() => {
+    if (isAdmin && viewMode === 'default') {
+      setViewMode('global')
+    }
+  }, [isAdmin])
+
   // 加载项目
-  const loadProjects = async (mode: ViewMode) => {
+  const loadProjects = useCallback(async (mode: ViewMode) => {
     setIsLoading(true)
     try {
       const res = await fetch(`/api/projects?viewMode=${mode}`)
@@ -126,12 +118,26 @@ export function ProjectList({ onCreateProject, onViewProject }: ProjectListProps
     } finally {
       setIsLoading(false)
     }
-  }
+  }, [])
 
   // 初始加载
   useEffect(() => {
     loadProjects(viewMode)
-  }, [viewMode])
+  }, [viewMode, loadProjects])
+
+  // 当 AppContext 的 projects 数量变化时刷新（创建/删除项目后）
+  useEffect(() => {
+    // 首次加载时 prevProjectsLengthRef.current 为 0，跳过
+    if (prevProjectsLengthRef.current === 0) {
+      prevProjectsLengthRef.current = contextProjects.length
+      return
+    }
+    // 后续变化时刷新
+    if (contextProjects.length !== prevProjectsLengthRef.current) {
+      prevProjectsLengthRef.current = contextProjects.length
+      loadProjects(viewMode)
+    }
+  }, [contextProjects.length, loadProjects, viewMode])
 
   // 过滤项目
   const filteredProjects = projects.filter(project => {
@@ -140,13 +146,6 @@ export function ProjectList({ onCreateProject, onViewProject }: ProjectListProps
     const matchesStatus = statusFilter === 'all' || project.status === statusFilter
     return matchesSearch && matchesStatus
   })
-
-  // 按关系分组项目
-  const groupedProjects = {
-    created: filteredProjects.filter(p => p._relation === 'CREATED'),
-    joined: filteredProjects.filter(p => p._relation === 'JOINED'),
-    global: filteredProjects.filter(p => p._relation === 'GLOBAL'),
-  }
 
   // 更新项目
   const handleUpdateProject = async () => {
@@ -274,7 +273,7 @@ export function ProjectList({ onCreateProject, onViewProject }: ProjectListProps
         <div className="flex items-center justify-between text-sm text-muted-foreground">
           <div className="flex items-center gap-1">
             <Users className="w-4 h-4" />
-            <span>{project.members?.length || 0} 成员</span>
+            <span>{project.memberCount || project.members?.length || 0} 成员</span>
           </div>
           <span>
             创建于 {new Date(project.createdAt).toLocaleDateString('zh-CN')}
@@ -286,53 +285,7 @@ export function ProjectList({ onCreateProject, onViewProject }: ProjectListProps
 
   // 渲染项目分组
   const renderProjectGroups = () => {
-    if (viewMode === 'global' && isAdmin) {
-      // 全局视角：按关系分组显示
-      return (
-        <div className="space-y-6">
-          {/* 我创建的项目 */}
-          {groupedProjects.created.length > 0 && (
-            <div>
-              <h3 className="text-lg font-semibold mb-3 flex items-center gap-2">
-                <Star className="w-5 h-5 text-primary" />
-                我创建的项目 ({groupedProjects.created.length})
-              </h3>
-              <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-                {groupedProjects.created.map(renderProjectCard)}
-              </div>
-            </div>
-          )}
-
-          {/* 我参与的项目 */}
-          {groupedProjects.joined.length > 0 && (
-            <div>
-              <h3 className="text-lg font-semibold mb-3 flex items-center gap-2">
-                <UserPlus className="w-5 h-5 text-blue-500" />
-                我参与的项目 ({groupedProjects.joined.length})
-              </h3>
-              <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-                {groupedProjects.joined.map(renderProjectCard)}
-              </div>
-            </div>
-          )}
-
-          {/* 其他项目 */}
-          {groupedProjects.global.length > 0 && (
-            <div>
-              <h3 className="text-lg font-semibold mb-3 flex items-center gap-2">
-                <Globe className="w-5 h-5 text-gray-500" />
-                其他项目 ({groupedProjects.global.length})
-              </h3>
-              <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-                {groupedProjects.global.map(renderProjectCard)}
-              </div>
-            </div>
-          )}
-        </div>
-      )
-    }
-
-    // 默认视角：不分组或按视图模式显示
+    // 全局视角或普通视角都直接显示项目列表
     if (filteredProjects.length === 0) {
       return null
     }
@@ -427,7 +380,7 @@ export function ProjectList({ onCreateProject, onViewProject }: ProjectListProps
         <div className="flex items-center justify-center py-12">
           <Loader2 className="w-8 h-8 animate-spin text-muted-foreground" />
         </div>
-      ) : filteredProjects.length > 0 || (viewMode === 'global' && isAdmin) ? (
+      ) : filteredProjects.length > 0 ? (
         renderProjectGroups()
       ) : (
         <Card>

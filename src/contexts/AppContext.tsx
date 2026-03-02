@@ -29,8 +29,10 @@ export interface Project {
   actualEndDate: string | null     // 真实结束日期
   completedAt: string | null       // 结束时间
   archivedAt: string | null        // 归档时间
+  primaryLeader: string | null     // 项目主负责人
   ownerId: string
   members: AppUser[]
+  memberCount?: number             // 成员数量（API 返回）
   createdAt: string
   _relation?: ProjectRelation      // 项目关系标记
 }

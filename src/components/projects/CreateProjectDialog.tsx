@@ -19,14 +19,16 @@ import { useApp } from '@/contexts/AppContext'
 interface CreateProjectDialogProps {
   open: boolean
   onOpenChange: (open: boolean) => void
+  onSuccess?: () => void  // 创建成功回调
 }
 
-export function CreateProjectDialog({ open, onOpenChange }: CreateProjectDialogProps) {
-  const { createProject } = useApp()
+export function CreateProjectDialog({ open, onOpenChange, onSuccess }: CreateProjectDialogProps) {
+  const { createProject, refreshData } = useApp()
   const [isLoading, setIsLoading] = useState(false)
   const [form, setForm] = useState({
     name: '',
     description: '',
+    primaryLeader: '',
     startDate: '',
     expectedEndDate: ''  // 改为预计结束日期
   })
@@ -41,14 +43,17 @@ export function CreateProjectDialog({ open, onOpenChange }: CreateProjectDialogP
     const project = await createProject({
       name: form.name,
       description: form.description || null,
+      primaryLeader: form.primaryLeader || null,
       startDate: form.startDate || null,
       expectedEndDate: form.expectedEndDate || null  // 使用预计结束日期
     })
     setIsLoading(false)
 
     if (project) {
-      setForm({ name: '', description: '', startDate: '', expectedEndDate: '' })
+      setForm({ name: '', description: '', primaryLeader: '', startDate: '', expectedEndDate: '' })
       onOpenChange(false)
+      refreshData()  // 刷新 AppContext 数据
+      onSuccess?.()  // 调用成功回调
     } else {
       alert('创建失败，请重试')
     }
@@ -81,6 +86,15 @@ export function CreateProjectDialog({ open, onOpenChange }: CreateProjectDialogP
               onChange={(e) => setForm(prev => ({ ...prev, description: e.target.value }))}
               placeholder="描述项目的目标和内容"
               rows={3}
+            />
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="project-leader">项目主负责人</Label>
+            <Input
+              id="project-leader"
+              value={form.primaryLeader}
+              onChange={(e) => setForm(prev => ({ ...prev, primaryLeader: e.target.value }))}
+              placeholder="输入项目主负责人姓名"
             />
           </div>
           <div className="grid grid-cols-2 gap-4">

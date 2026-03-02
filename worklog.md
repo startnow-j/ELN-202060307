@@ -692,3 +692,59 @@ data: {
 - ✅ 后端API字段处理已优化
 - ✅ Lint检查通过
 - ⚠️ 预览界面显示问题已恢复
+
+---
+
+## Task ID: 12 - 项目管理模块优化与Bug修复
+
+**日期**: 2025-02-28
+
+**背景**: 继续完善项目管理模块，修复成员数显示问题，新增项目主负责人字段，简化视角切换功能
+
+### Work Log:
+
+#### 1. 修复项目成员数未更新问题
+- **问题**: 项目卡片中成员数始终为0，与项目详情页不一致
+- **原因**: 项目列表使用 `project.members?.length`，但成员实际存储在 `projectMembers` 表中
+- **解决**:
+  - API 返回新增 `memberCount` 字段，计算逻辑：`projectMembers` 表成员 + 创建者
+  - 前端组件使用 `memberCount` 显示成员数量
+
+#### 2. 新增项目主负责人字段
+- **需求**: 项目允许多个负责人，需要手写填入"项目主负责人"
+- **实现**:
+  - 数据库新增 `primaryLeader` 字段（String? 类型）
+  - 创建项目对话框新增主负责人输入框
+  - 项目详情页支持编辑主负责人
+  - API 支持 `primaryLeader` 字段的读写
+
+#### 3. 简化视角切换功能
+- **需求**: 原有4种视角（普通视角、我创建的、我参与的、全局视角）过于复杂
+- **修改**: 简化为2种视角
+  - **普通视角**: 显示我创建和参与的项目
+  - **全局视角**: 显示所有项目（仅管理员可用）
+- **优化**: 管理员默认使用全局视角，普通用户只能使用普通视角
+
+#### 4. 修复项目主负责人保存失败
+- **问题**: 编辑主负责人后保存失败，提示"更新项目失败"
+- **原因**: Prisma 客户端缓存未更新，不识别新的 `primaryLeader` 字段
+- **解决**: 执行 `npx prisma generate` 重新生成 Prisma 客户端
+
+### 文件变更:
+| 文件 | 变更类型 | 说明 |
+|------|---------|------|
+| prisma/schema.prisma | 修改 | 新增 primaryLeader 字段 |
+| src/app/api/projects/route.ts | 修改 | 新增 memberCount、primaryLeader 支持 |
+| src/app/api/projects/[id]/route.ts | 修改 | 支持 primaryLeader 更新 |
+| src/components/projects/ProjectList.tsx | 重构 | 简化视角切换，使用 memberCount |
+| src/components/projects/ProjectDetail.tsx | 修改 | 新增主负责人编辑、成员数据立即获取 |
+| src/components/projects/CreateProjectDialog.tsx | 修改 | 新增主负责人输入框 |
+| src/contexts/AppContext.tsx | 修改 | Project 类型新增 primaryLeader、memberCount |
+
+### Stage Summary:
+- ✅ 项目成员数显示问题已修复
+- ✅ 项目主负责人字段已添加
+- ✅ 视角切换功能已简化（2种视角）
+- ✅ Prisma 客户端缓存问题已解决
+- ✅ Lint 检查通过
+- ✅ 功能测试通过

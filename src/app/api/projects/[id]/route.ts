@@ -18,7 +18,7 @@ export async function PUT(
 
     const { id } = await params
     const body = await request.json()
-    const { name, description, status, startDate, endDate, expectedEndDate, memberIds } = body
+    const { name, description, status, startDate, endDate, expectedEndDate, primaryLeader, memberIds } = body
 
     // 检查权限
     const project = await db.project.findUnique({
@@ -100,6 +100,7 @@ export async function PUT(
           ...(startDate !== undefined && { startDate: startDate ? new Date(startDate) : null }),
           ...(endDate !== undefined && { endDate: endDate ? new Date(endDate) : null }),
           ...(expectedEndDate !== undefined && { expectedEndDate: expectedEndDate ? new Date(expectedEndDate) : null }),
+          ...(primaryLeader !== undefined && { primaryLeader }),
           ...(memberIds && { members: { set: memberIds.map((id: string) => ({ id })) } })
         },
         include: {
@@ -147,6 +148,7 @@ export async function PUT(
       actualEndDate: updated.actualEndDate?.toISOString() || null,
       completedAt: updated.completedAt?.toISOString() || null,
       archivedAt: updated.archivedAt?.toISOString() || null,
+      primaryLeader: updated.primaryLeader,
       ownerId: updated.ownerId,
       owner: updated.owner,
       members: updated.members,

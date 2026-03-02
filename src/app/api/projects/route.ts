@@ -65,6 +65,11 @@ export async function GET(request: NextRequest) {
         relation = 'GLOBAL'
       }
 
+      // 计算成员数量：projectMembers 表中的成员 + 创建者（如果不在表中）
+      const memberIds = new Set(project.projectMembers.map(pm => pm.userId))
+      memberIds.add(project.ownerId)  // 确保创建者被计入
+      const memberCount = memberIds.size
+
       return {
         id: project.id,
         name: project.name,
@@ -76,9 +81,11 @@ export async function GET(request: NextRequest) {
         actualEndDate: project.actualEndDate?.toISOString() || null,
         completedAt: project.completedAt?.toISOString() || null,
         archivedAt: project.archivedAt?.toISOString() || null,
+        primaryLeader: project.primaryLeader,
         ownerId: project.ownerId,
         owner: project.owner,
         members: project.members,
+        memberCount,  // 新增：正确的成员数量
         createdAt: project.createdAt.toISOString(),
         experiments: project.experimentProjects.map(ep => ({
           id: ep.experiment.id,
@@ -130,7 +137,7 @@ export async function POST(request: NextRequest) {
     }
 
     const body = await request.json()
-    const { name, description, startDate, expectedEndDate, memberIds } = body
+    const { name, description, startDate, expectedEndDate, primaryLeader, memberIds } = body
 
     if (!name) {
       return NextResponse.json({ error: '项目名称不能为空' }, { status: 400 })
@@ -143,6 +150,7 @@ export async function POST(request: NextRequest) {
         startDate: startDate ? new Date(startDate) : null,
         endDate: expectedEndDate ? new Date(expectedEndDate) : null,       // 兼容旧字段
         expectedEndDate: expectedEndDate ? new Date(expectedEndDate) : null,  // 新字段
+        primaryLeader,
         ownerId: userId,
         members: memberIds ? {
           connect: memberIds.map((id: string) => ({ id }))
@@ -180,6 +188,7 @@ export async function POST(request: NextRequest) {
       actualEndDate: project.actualEndDate?.toISOString() || null,
       completedAt: project.completedAt?.toISOString() || null,
       archivedAt: project.archivedAt?.toISOString() || null,
+      primaryLeader: project.primaryLeader,
       ownerId: project.ownerId,
       owner: project.owner,
       members: project.members,

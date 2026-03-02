@@ -129,7 +129,8 @@ export function ProjectDetail({ project, experiments, onBack, onViewExperiment }
   const [editForm, setEditForm] = useState({
     startDate: '',
     expectedEndDate: '',
-    description: ''
+    description: '',
+    primaryLeader: ''
   })
 
   // 状态变更对话框
@@ -203,7 +204,7 @@ export function ProjectDetail({ project, experiments, onBack, onViewExperiment }
     }
   }, [project.id, activeTab])
 
-  // 获取项目成员
+  // 获取项目成员 - 组件加载时立即获取，以显示正确的成员数
   useEffect(() => {
     const fetchMembers = async () => {
       setLoadingMembers(true)
@@ -219,10 +220,34 @@ export function ProjectDetail({ project, experiments, onBack, onViewExperiment }
         setLoadingMembers(false)
       }
     }
-    if (activeTab === 'members') {
-      fetchMembers()
+    // 组件加载时立即获取成员数据
+    fetchMembers()
+  }, [project.id])
+
+  // 用于追踪上次刷新的 Tab，避免重复刷新
+  const [lastRefreshedTab, setLastRefreshedTab] = useState<string | null>(null)
+
+  // 切换到人员管理 Tab 时刷新成员列表
+  useEffect(() => {
+    const refreshMembers = async () => {
+      if (activeTab === 'members' && lastRefreshedTab !== 'members') {
+        // 切换到成员 Tab 时刷新列表
+        try {
+          const res = await fetch(`/api/projects/${project.id}/members`)
+          if (res.ok) {
+            const data = await res.json()
+            setMembers(data)
+            setLastRefreshedTab('members')
+          }
+        } catch (error) {
+          console.error('Refresh members error:', error)
+        }
+      } else if (activeTab !== 'members') {
+        setLastRefreshedTab(null) // 离开成员 Tab 时重置
+      }
     }
-  }, [project.id, activeTab])
+    refreshMembers()
+  }, [activeTab, project.id, lastRefreshedTab])
 
   // 获取可添加的用户列表
   useEffect(() => {
@@ -258,7 +283,8 @@ export function ProjectDetail({ project, experiments, onBack, onViewExperiment }
     setEditForm({
       startDate: project.startDate ? new Date(project.startDate).toISOString().split('T')[0] : '',
       expectedEndDate: (project.expectedEndDate || project.endDate) ? new Date(project.expectedEndDate || project.endDate!).toISOString().split('T')[0] : '',
-      description: project.description || ''
+      description: project.description || '',
+      primaryLeader: (project as any).primaryLeader || ''
     })
   }
 
@@ -284,7 +310,8 @@ export function ProjectDetail({ project, experiments, onBack, onViewExperiment }
         body: JSON.stringify({
           startDate: editForm.startDate || null,
           expectedEndDate: editForm.expectedEndDate || null,
-          description: editForm.description || null
+          description: editForm.description || null,
+          primaryLeader: editForm.primaryLeader || null
         })
       })
 
@@ -647,9 +674,22 @@ export function ProjectDetail({ project, experiments, onBack, onViewExperiment }
                     <p className="text-sm text-muted-foreground">项目状态</p>
                     <p className="font-medium">{getStatusBadge(project.status)}</p>
                   </div>
+                  {/* 项目主负责人 - 可编辑 */}
                   <div className="space-y-1">
-                    <p className="text-sm text-muted-foreground">项目负责人</p>
-                    <p className="font-medium">{project.members?.find(m => m.id === project.ownerId)?.name || '-'}</p>
+                    <p className="text-sm text-muted-foreground flex items-center gap-1">
+                      <Users className="w-3 h-3" /> 项目主负责人
+                    </p>
+                    {isEditing ? (
+                      <Input
+                        type="text"
+                        value={editForm.primaryLeader}
+                        onChange={(e) => setEditForm(prev => ({ ...prev, primaryLeader: e.target.value }))}
+                        placeholder="输入主负责人姓名"
+                        className="w-full"
+                      />
+                    ) : (
+                      <p className="font-medium">{(project as any).primaryLeader || '-'}</p>
+                    )}
                   </div>
                   <div className="space-y-1">
                     <p className="text-sm text-muted-foreground">成员数量</p>
