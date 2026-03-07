@@ -24,7 +24,7 @@ export async function GET(
       return NextResponse.json({ error: '实验记录不存在' }, { status: 404 })
     }
 
-    // 获取反馈历史
+    // 获取反馈历史（包含附件）
     const feedbacks = await db.reviewFeedback.findMany({
       where: { experimentId },
       orderBy: { createdAt: 'desc' },
@@ -33,13 +33,42 @@ export async function GET(
           select: {
             id: true,
             name: true,
-            email: true
+            email: true,
+            role: true,
+            avatar: true
+          }
+        },
+        attachments: {
+          select: {
+            id: true,
+            name: true,
+            type: true,
+            size: true,
+            createdAt: true
           }
         }
       }
     })
 
-    return NextResponse.json(feedbacks)
+    // 转换数据格式
+    const result = feedbacks.map(feedback => ({
+      id: feedback.id,
+      action: feedback.action,
+      feedback: feedback.feedback,
+      createdAt: feedback.createdAt.toISOString(),
+      experimentId: feedback.experimentId,
+      reviewerId: feedback.reviewerId,
+      reviewer: feedback.reviewer,
+      attachments: feedback.attachments.map(att => ({
+        id: att.id,
+        name: att.name,
+        type: att.type,
+        size: att.size,
+        createdAt: att.createdAt.toISOString()
+      }))
+    }))
+
+    return NextResponse.json(result)
   } catch (error) {
     console.error('Get feedbacks error:', error)
     return NextResponse.json({ error: '服务器错误' }, { status: 500 })

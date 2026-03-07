@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
 import { getUserIdFromToken } from '@/lib/auth'
-import { ReviewStatus } from '@prisma/client'
+import { ReviewStatus, ReviewRequestStatus } from '@prisma/client'
 
 // 审核操作
 export async function POST(
@@ -16,10 +16,21 @@ export async function POST(
 
     const { id } = await params
     const body = await request.json()
-    const { action, feedback } = body as { action: 'APPROVE' | 'REQUEST_REVISION'; feedback?: string }
+    const { action, feedback, transferToUserId, attachmentIds } = body as {
+      action: 'APPROVE' | 'REQUEST_REVISION' | 'TRANSFER'
+      feedback?: string
+      transferToUserId?: string
+      attachmentIds?: string[]
+    }
 
-    if (!action || !['APPROVE', 'REQUEST_REVISION'].includes(action)) {
+    // 验证操作类型
+    if (!action || !['APPROVE', 'REQUEST_REVISION', 'TRANSFER'].includes(action)) {
       return NextResponse.json({ error: '无效的审核操作' }, { status: 400 })
+    }
+
+    // 转交操作必须指定转交目标
+    if (action === 'TRANSFER' && !transferToUserId) {
+      return NextResponse.json({ error: '转交审核必须指定目标审核人' }, { status: 400 })
     }
 
     // 获取当前用户
@@ -43,7 +54,13 @@ export async function POST(
             }
           }
         },
-        attachments: true
+        attachments: true,
+        reviewRequests: {
+          where: { status: 'PENDING' },
+          include: {
+            reviewer: { select: { id: true, name: true, email: true, role: true, avatar: true } }
+          }
+        }
       }
     })
 
@@ -57,36 +74,181 @@ export async function POST(
     }
 
     // 检查权限（管理员或项目负责人可审核）
-    const isProjectLead = experiment.experimentProjects.some(ep => 
-      ep.project.ownerId === userId || 
+    const isProjectLead = experiment.experimentProjects.some(ep =>
+      ep.project.ownerId === userId ||
       ep.project.members.some(m => m.id === userId && m.role === 'PROJECT_LEAD')
     )
-    const canReview = currentUser.role === 'ADMIN' || isProjectLead
+    const canReview = currentUser.role === 'ADMIN' || currentUser.role === 'SUPER_ADMIN' || isProjectLead
 
     if (!canReview) {
       return NextResponse.json({ error: '无权限审核此实验记录' }, { status: 403 })
     }
 
-    // 创建审核反馈
-    await db.reviewFeedback.create({
-      data: {
-        action,
-        feedback: feedback || null,
-        experimentId: id,
-        reviewerId: userId
+    // 如果是转交操作，验证目标审核人
+    if (action === 'TRANSFER') {
+      const targetUser = await db.user.findUnique({
+        where: { id: transferToUserId },
+        select: { id: true, name: true, email: true, role: true, isActive: true }
+      })
+
+      if (!targetUser || !targetUser.isActive) {
+        return NextResponse.json({ error: '目标审核人不存在或已禁用' }, { status: 400 })
+      }
+
+      // 检查目标审核人是否有权限审核
+      const targetIsProjectLead = experiment.experimentProjects.some(ep =>
+        ep.project.ownerId === transferToUserId ||
+        ep.project.members.some(m => m.id === transferToUserId && m.role === 'PROJECT_LEAD')
+      )
+      const targetCanReview = targetUser.role === 'ADMIN' || targetUser.role === 'SUPER_ADMIN' || targetIsProjectLead
+
+      if (!targetCanReview) {
+        return NextResponse.json({ error: '目标审核人无权限审核此实验' }, { status: 400 })
+      }
+
+      // 不能转交给自己
+      if (transferToUserId === userId) {
+        return NextResponse.json({ error: '不能转交给自己' }, { status: 400 })
+      }
+    }
+
+    // 使用事务处理审核操作
+    const updated = await db.$transaction(async (tx) => {
+      // 创建审核反馈记录
+      const reviewFeedback = await tx.reviewFeedback.create({
+        data: {
+          action,
+          feedback: feedback || null,
+          experimentId: id,
+          reviewerId: userId
+        }
+      })
+
+      // 如果有批注附件，关联到审核反馈
+      if (attachmentIds && attachmentIds.length > 0) {
+        await tx.attachment.updateMany({
+          where: {
+            id: { in: attachmentIds },
+            experimentId: id,
+            uploaderId: userId
+          },
+          data: {
+            reviewFeedbackId: reviewFeedback.id
+          }
+        })
+      }
+
+      if (action === 'TRANSFER') {
+        // 转交操作：将当前用户的所有待处理 ReviewRequest 标记为 TRANSFERRED
+        await tx.reviewRequest.updateMany({
+          where: {
+            experimentId: id,
+            reviewerId: userId,
+            status: 'PENDING'
+          },
+          data: { status: 'TRANSFERRED' }
+        })
+
+        // 为目标审核人创建新的 ReviewRequest
+        await tx.reviewRequest.create({
+          data: {
+            experimentId: id,
+            reviewerId: transferToUserId!,
+            note: `从 ${currentUser.name} 转交` + (feedback ? `: ${feedback}` : ''),
+            status: 'PENDING'
+          }
+        })
+
+        // 实验状态保持 PENDING_REVIEW
+        return await tx.experiment.findUnique({
+          where: { id },
+          include: {
+            author: { select: { id: true, name: true, email: true, role: true, avatar: true } },
+            experimentProjects: {
+              include: {
+                project: {
+                  include: {
+                    owner: { select: { id: true, name: true, email: true, role: true, avatar: true } },
+                    members: { select: { id: true, name: true, email: true, role: true, avatar: true } }
+                  }
+                }
+              }
+            },
+            attachments: true,
+            reviewRequests: {
+              include: {
+                reviewer: { select: { id: true, name: true, email: true, role: true, avatar: true } }
+              }
+            }
+          }
+        })
+      } else {
+        // APPROVE 或 REQUEST_REVISION
+        const newStatus: ReviewStatus = action === 'APPROVE' ? 'LOCKED' : 'NEEDS_REVISION'
+
+        // 将所有待处理的 ReviewRequest 标记为完成或取消
+        await tx.reviewRequest.updateMany({
+          where: {
+            experimentId: id,
+            status: 'PENDING'
+          },
+          data: {
+            status: action === 'APPROVE' ? 'COMPLETED' : 'CANCELLED'
+          }
+        })
+
+        const exp = await tx.experiment.update({
+          where: { id },
+          data: {
+            reviewStatus: newStatus,
+            reviewedAt: new Date(),
+            completenessScore: action === 'APPROVE' ? 100 : experiment.completenessScore
+          },
+          include: {
+            author: { select: { id: true, name: true, email: true, role: true, avatar: true } },
+            experimentProjects: {
+              include: {
+                project: {
+                  include: {
+                    owner: { select: { id: true, name: true, email: true, role: true, avatar: true } },
+                    members: { select: { id: true, name: true, email: true, role: true, avatar: true } }
+                  }
+                }
+              }
+            },
+            attachments: true,
+            reviewRequests: {
+              include: {
+                reviewer: { select: { id: true, name: true, email: true, role: true, avatar: true } }
+              }
+            }
+          }
+        })
+
+        return exp
       }
     })
 
-    // 更新实验状态
-    const newStatus: ReviewStatus = action === 'APPROVE' ? 'LOCKED' : 'NEEDS_REVISION'
-    
-    const updated = await db.experiment.update({
-      where: { id },
+    // 创建审计日志
+    await db.auditLog.create({
       data: {
-        reviewStatus: newStatus,
-        reviewedAt: new Date(),
-        completenessScore: action === 'APPROVE' ? 100 : experiment.completenessScore
-      },
+        action: action === 'APPROVE' ? 'APPROVE' : action === 'TRANSFER' ? 'TRANSFER' : 'REQUEST_REVISION',
+        entityType: 'Experiment',
+        entityId: id,
+        userId,
+        details: JSON.stringify({
+          title: experiment.title,
+          action,
+          feedback: feedback || null,
+          transferToUserId: action === 'TRANSFER' ? transferToUserId : undefined,
+          attachmentCount: attachmentIds?.length || 0
+        })
+      }
+    })
+
+    // 获取完整的返回数据（包含附件关联）
+    const result = await db.experiment.findUnique({
+      where: { id },
       include: {
         author: { select: { id: true, name: true, email: true, role: true, avatar: true } },
         experimentProjects: {
@@ -99,41 +261,45 @@ export async function POST(
             }
           }
         },
-        attachments: true
+        attachments: {
+          include: {
+            reviewFeedback: {
+              include: {
+                reviewer: { select: { id: true, name: true, email: true, role: true, avatar: true } }
+              }
+            }
+          }
+        },
+        reviewRequests: {
+          include: {
+            reviewer: { select: { id: true, name: true, email: true, role: true, avatar: true } }
+          },
+          orderBy: { createdAt: 'desc' }
+        },
+        reviewFeedbacks: {
+          include: {
+            reviewer: { select: { id: true, name: true, email: true, role: true, avatar: true } },
+            attachments: true
+          },
+          orderBy: { createdAt: 'desc' }
+        }
       }
     })
-
-    // 创建审计日志
-    await db.auditLog.create({
-      data: {
-        action: action === 'APPROVE' ? 'APPROVE' : 'REQUEST_REVISION',
-        entityType: 'Experiment',
-        entityId: id,
-        userId,
-        details: JSON.stringify({ 
-          title: experiment.title,
-          feedback: feedback || null
-        })
-      }
-    })
-
-    // 如果是通过，这里可以触发锁定PDF生成
-    // TODO: 实现锁定PDF生成功能
 
     return NextResponse.json({
-      id: updated.id,
-      title: updated.title,
-      summary: updated.summary,
-      conclusion: updated.conclusion,
-      extractedInfo: updated.extractedInfo ? JSON.parse(updated.extractedInfo) : null,
-      extractionStatus: updated.extractionStatus,
-      extractionError: updated.extractionError,
-      reviewStatus: updated.reviewStatus,
-      completenessScore: updated.completenessScore,
-      tags: updated.tags,
-      authorId: updated.authorId,
-      author: updated.author,
-      projects: updated.experimentProjects.map(ep => ({
+      id: result!.id,
+      title: result!.title,
+      summary: result!.summary,
+      conclusion: result!.conclusion,
+      extractedInfo: result!.extractedInfo ? JSON.parse(result!.extractedInfo) : null,
+      extractionStatus: result!.extractionStatus,
+      extractionError: result!.extractionError,
+      reviewStatus: result!.reviewStatus,
+      completenessScore: result!.completenessScore,
+      tags: result!.tags,
+      authorId: result!.authorId,
+      author: result!.author,
+      projects: result!.experimentProjects.map(ep => ({
         id: ep.project.id,
         name: ep.project.name,
         description: ep.project.description,
@@ -145,7 +311,7 @@ export async function POST(
         members: ep.project.members,
         createdAt: ep.project.createdAt.toISOString()
       })),
-      attachments: updated.attachments.map(att => ({
+      attachments: result!.attachments.map(att => ({
         id: att.id,
         name: att.name,
         type: att.type,
@@ -153,12 +319,42 @@ export async function POST(
         path: att.path,
         category: att.category,
         previewData: att.extractedText ? JSON.parse(att.extractedText) : null,
-        createdAt: att.createdAt.toISOString()
+        createdAt: att.createdAt.toISOString(),
+        reviewFeedbackId: att.reviewFeedbackId,
+        reviewFeedback: att.reviewFeedback ? {
+          id: att.reviewFeedback.id,
+          action: att.reviewFeedback.action,
+          reviewer: att.reviewFeedback.reviewer
+        } : null
       })),
-      createdAt: updated.createdAt.toISOString(),
-      updatedAt: updated.updatedAt.toISOString(),
-      submittedAt: updated.submittedAt?.toISOString() || null,
-      reviewedAt: updated.reviewedAt?.toISOString() || null
+      reviewRequests: result!.reviewRequests.map(rr => ({
+        id: rr.id,
+        status: rr.status,
+        note: rr.note,
+        createdAt: rr.createdAt.toISOString(),
+        updatedAt: rr.updatedAt.toISOString(),
+        reviewerId: rr.reviewerId,
+        reviewer: rr.reviewer
+      })),
+      reviewFeedbacks: result!.reviewFeedbacks.map(rf => ({
+        id: rf.id,
+        action: rf.action,
+        feedback: rf.feedback,
+        createdAt: rf.createdAt.toISOString(),
+        reviewerId: rf.reviewerId,
+        reviewer: rf.reviewer,
+        attachments: rf.attachments.map(att => ({
+          id: att.id,
+          name: att.name,
+          size: att.size,
+          type: att.type,
+          createdAt: att.createdAt.toISOString()
+        }))
+      })),
+      createdAt: result!.createdAt.toISOString(),
+      updatedAt: result!.updatedAt.toISOString(),
+      submittedAt: result!.submittedAt?.toISOString() || null,
+      reviewedAt: result!.reviewedAt?.toISOString() || null
     })
 
   } catch (error) {

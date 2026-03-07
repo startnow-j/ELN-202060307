@@ -106,10 +106,8 @@ export function ExperimentList({ onCreateExperiment, onViewExperiment }: Experim
   // 是否是管理员
   const isAdmin = currentUser?.role === 'ADMIN' || currentUser?.role === 'SUPER_ADMIN'
   
-  // 视角状态 - 管理员默认全局视角，普通用户普通视角
-  const [viewMode, setViewMode] = useState<ViewMode>(() => 
-    isAdmin ? 'global' : 'default'
-  )
+  // 视角状态 - 所有用户默认普通视角
+  const [viewMode, setViewMode] = useState<ViewMode>('default')
   
   // 是否使用全局视角
   const useGlobalView = viewMode === 'global' && isAdmin

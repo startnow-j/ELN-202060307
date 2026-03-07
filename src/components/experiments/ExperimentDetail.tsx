@@ -1,11 +1,13 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Separator } from '@/components/ui/separator'
 import { Progress } from '@/components/ui/progress'
+import { Textarea } from '@/components/ui/textarea'
+import { Checkbox } from '@/components/ui/checkbox'
 import {
   AlertDialog,
   AlertDialogAction,
@@ -16,6 +18,14 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog'
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog'
 import { 
   ArrowLeft, 
   Pencil, 
@@ -29,11 +39,22 @@ import {
   AlertCircle,
   Send,
   Lock,
-  FileText
+  FileText,
+  Users
 } from 'lucide-react'
-import { useApp, Experiment, ReviewStatus } from '@/contexts/AppContext'
+import { useApp, Experiment, ReviewStatus, AppUser } from '@/contexts/AppContext'
 import { AttachmentManager } from '@/components/attachments/AttachmentManager'
 import { ExtractedInfoPanel } from '@/components/experiments/ExtractedInfoPanel'
+import { ReviewHistory } from '@/components/experiments/ReviewHistory'
+
+interface Reviewer {
+  id: string
+  name: string
+  email: string
+  role: string
+  avatar: string | null
+  reason: string
+}
 
 interface ExperimentDetailProps {
   experiment: Experiment
@@ -68,7 +89,12 @@ const reviewStatusConfig: Record<ReviewStatus, { label: string; color: string; i
 export function ExperimentDetail({ experiment, onEdit, onBack }: ExperimentDetailProps) {
   const { deleteExperiment, currentUser, triggerExtraction, updateExtractedInfo, submitForReview } = useApp()
   const [showDeleteDialog, setShowDeleteDialog] = useState(false)
+  const [showSubmitDialog, setShowSubmitDialog] = useState(false)
   const [isSubmitting, setIsSubmitting] = useState(false)
+  const [reviewers, setReviewers] = useState<Reviewer[]>([])
+  const [selectedReviewers, setSelectedReviewers] = useState<string[]>([])
+  const [submitNote, setSubmitNote] = useState('')
+  const [isLoadingReviewers, setIsLoadingReviewers] = useState(false)
 
   const canEdit = (currentUser?.id === experiment.authorId || 
                   currentUser?.role === 'ADMIN' || 
@@ -91,12 +117,41 @@ export function ExperimentDetail({ experiment, onEdit, onBack }: ExperimentDetai
     onBack()
   }
 
+  // 打开提交审核对话框时获取审核人列表
+  const handleSubmitDialogOpen = async () => {
+    setShowSubmitDialog(true)
+    setIsLoadingReviewers(true)
+    try {
+      const res = await fetch(`/api/experiments/${experiment.id}/reviewers`)
+      if (res.ok) {
+        const data = await res.json()
+        setReviewers(data.reviewers || [])
+      }
+    } catch (error) {
+      console.error('Failed to load reviewers:', error)
+    } finally {
+      setIsLoadingReviewers(false)
+    }
+  }
+
+  // 切换审核人选择
+  const toggleReviewer = (reviewerId: string) => {
+    setSelectedReviewers(prev => 
+      prev.includes(reviewerId) 
+        ? prev.filter(id => id !== reviewerId)
+        : [...prev, reviewerId]
+    )
+  }
+
+  // 提交审核
   const handleSubmitReview = async () => {
     setIsSubmitting(true)
     try {
-      const success = await submitForReview(experiment.id)
+      const success = await submitForReview(experiment.id, selectedReviewers, submitNote || undefined)
       if (success) {
-        alert('已提交审核')
+        setShowSubmitDialog(false)
+        setSelectedReviewers([])
+        setSubmitNote('')
       } else {
         alert('提交失败')
       }
@@ -190,12 +245,8 @@ export function ExperimentDetail({ experiment, onEdit, onBack }: ExperimentDetai
           )}
           
           {canSubmit && (
-            <Button onClick={handleSubmitReview} disabled={isSubmitting}>
-              {isSubmitting ? (
-                <div className="w-4 h-4 mr-2 border-2 border-white border-t-transparent rounded-full animate-spin" />
-              ) : (
-                <Send className="w-4 h-4 mr-2" />
-              )}
+            <Button onClick={handleSubmitDialogOpen} disabled={isSubmitting}>
+              <Send className="w-4 h-4 mr-2" />
               提交审核
             </Button>
           )}
@@ -393,34 +444,14 @@ export function ExperimentDetail({ experiment, onEdit, onBack }: ExperimentDetai
               onApplyToFields={() => {}}
             />
 
-            {/* 审核信息 */}
-            {experiment.reviewStatus !== 'DRAFT' && (
-              <Card>
-                <CardHeader>
-                  <CardTitle className="text-lg">审核信息</CardTitle>
-                </CardHeader>
-                <CardContent className="space-y-3">
-                  <div className="flex justify-between text-sm">
-                    <span className="text-muted-foreground">状态</span>
-                    <Badge className={statusConfig.color}>
-                      {statusConfig.label}
-                    </Badge>
-                  </div>
-                  {experiment.submittedAt && (
-                    <div className="flex justify-between text-sm">
-                      <span className="text-muted-foreground">提交时间</span>
-                      <span>{formatDate(experiment.submittedAt)}</span>
-                    </div>
-                  )}
-                  {experiment.reviewedAt && (
-                    <div className="flex justify-between text-sm">
-                      <span className="text-muted-foreground">审核时间</span>
-                      <span>{formatDate(experiment.reviewedAt)}</span>
-                    </div>
-                  )}
-                </CardContent>
-              </Card>
-            )}
+            {/* 审核历史 */}
+            <ReviewHistory
+              reviewFeedbacks={experiment.reviewFeedbacks || []}
+              reviewRequests={experiment.reviewRequests || []}
+              reviewStatus={experiment.reviewStatus}
+              reviewedAt={experiment.reviewedAt}
+              attachmentCount={experiment.attachments?.length || 0}
+            />
           </div>
         </div>
       </div>
@@ -445,6 +476,92 @@ export function ExperimentDetail({ experiment, onEdit, onBack }: ExperimentDetai
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {/* 提交审核对话框 */}
+      <Dialog open={showSubmitDialog} onOpenChange={setShowSubmitDialog}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Send className="w-5 h-5" />
+              提交审核
+            </DialogTitle>
+            <DialogDescription>
+              选择审核人并填写提交留言（可选）
+            </DialogDescription>
+          </DialogHeader>
+          
+          <div className="space-y-4 py-4">
+            {/* 审核人选择 */}
+            <div className="space-y-2">
+              <label className="text-sm font-medium flex items-center gap-2">
+                <Users className="w-4 h-4" />
+                选择审核人（可选多个）
+              </label>
+              {isLoadingReviewers ? (
+                <div className="flex items-center justify-center py-4">
+                  <div className="w-6 h-6 border-2 border-primary border-t-transparent rounded-full animate-spin" />
+                </div>
+              ) : reviewers.length > 0 ? (
+                <div className="max-h-48 overflow-y-auto space-y-2 border rounded-lg p-2">
+                  {reviewers.map(reviewer => (
+                    <label
+                      key={reviewer.id}
+                      className="flex items-center gap-3 p-2 rounded-lg hover:bg-muted cursor-pointer"
+                    >
+                      <Checkbox
+                        checked={selectedReviewers.includes(reviewer.id)}
+                        onCheckedChange={() => toggleReviewer(reviewer.id)}
+                      />
+                      <div className="flex-1 min-w-0">
+                        <div className="font-medium truncate">{reviewer.name}</div>
+                        <div className="text-xs text-muted-foreground truncate">
+                          {reviewer.email}
+                        </div>
+                      </div>
+                      <Badge variant="outline" className="text-xs">
+                        {reviewer.reason}
+                      </Badge>
+                    </label>
+                  ))}
+                </div>
+              ) : (
+                <p className="text-sm text-muted-foreground py-2">
+                  暂无可用审核人，将自动分配给项目负责人或管理员
+                </p>
+              )}
+            </div>
+
+            {/* 提交留言 */}
+            <div className="space-y-2">
+              <label className="text-sm font-medium">提交留言（可选）</label>
+              <Textarea
+                placeholder="填写给审核人的留言..."
+                value={submitNote}
+                onChange={(e) => setSubmitNote(e.target.value)}
+                rows={3}
+                maxLength={500}
+              />
+              <p className="text-xs text-muted-foreground text-right">
+                {submitNote.length}/500
+              </p>
+            </div>
+          </div>
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowSubmitDialog(false)}>
+              取消
+            </Button>
+            <Button onClick={handleSubmitReview} disabled={isSubmitting}>
+              {isSubmitting ? (
+                <div className="w-4 h-4 mr-2 border-2 border-white border-t-transparent rounded-full animate-spin" />
+              ) : (
+                <Send className="w-4 h-4 mr-2" />
+              )}
+              确认提交
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }

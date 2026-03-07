@@ -300,6 +300,7 @@ export async function POST(request: NextRequest) {
     const formData = await request.formData()
     const file = formData.get('file') as File
     const experimentId = formData.get('experimentId') as string
+    const reviewFeedbackId = formData.get('reviewFeedbackId') as string | null
 
     if (!file || !experimentId) {
       return NextResponse.json({ error: '缺少文件或实验ID' }, { status: 400 })
@@ -330,9 +331,25 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: '无权限上传附件' }, { status: 403 })
     }
 
-    // 检查实验状态
-    if (experiment.reviewStatus === 'LOCKED') {
+    // 如果是审核批注附件，允许上传；否则检查实验状态
+    if (!reviewFeedbackId && experiment.reviewStatus === 'LOCKED') {
       return NextResponse.json({ error: '已锁定的实验记录不能上传附件' }, { status: 403 })
+    }
+
+    // 如果指定了 reviewFeedbackId，验证其存在性和权限
+    if (reviewFeedbackId) {
+      const reviewFeedback = await db.reviewFeedback.findUnique({
+        where: { id: reviewFeedbackId }
+      })
+      if (!reviewFeedback) {
+        return NextResponse.json({ error: '审核反馈不存在' }, { status: 404 })
+      }
+      if (reviewFeedback.experimentId !== experimentId) {
+        return NextResponse.json({ error: '审核反馈与实验不匹配' }, { status: 400 })
+      }
+      if (reviewFeedback.reviewerId !== userId && user?.role !== 'ADMIN' && user?.role !== 'SUPER_ADMIN') {
+        return NextResponse.json({ error: '无权限上传批注附件' }, { status: 403 })
+      }
     }
 
     // 准备文件数据
@@ -375,7 +392,8 @@ export async function POST(request: NextRequest) {
         category: getFileCategory(file.name),
         extractedText: previewData ? JSON.stringify(previewData) : null,
         experimentId,
-        uploaderId: userId
+        uploaderId: userId,
+        reviewFeedbackId: reviewFeedbackId || null
       }
     })
 
@@ -387,7 +405,8 @@ export async function POST(request: NextRequest) {
       path: attachment.path,
       category: attachment.category,
       previewData: previewData,
-      createdAt: attachment.createdAt.toISOString()
+      createdAt: attachment.createdAt.toISOString(),
+      reviewFeedbackId: attachment.reviewFeedbackId
     })
 
   } catch (error) {

@@ -87,10 +87,8 @@ export function ProjectList({ onCreateProject, onViewProject }: ProjectListProps
   // 是否是管理员
   const isAdmin = currentUser?.role === 'ADMIN' || currentUser?.role === 'SUPER_ADMIN'
   
-  // 视角状态 - 管理员默认全局视角，普通用户普通视角（使用函数初始值避免双重请求）
-  const [viewMode, setViewMode] = useState<ViewMode>(() => 
-    isAdmin ? 'global' : 'default'
-  )
+  // 视角状态 - 所有用户默认普通视角
+  const [viewMode, setViewMode] = useState<ViewMode>('default')
   
   const [editProject, setEditProject] = useState<Project | null>(null)
   const [deleteProjectId, setDeleteProjectId] = useState<string | null>(null)

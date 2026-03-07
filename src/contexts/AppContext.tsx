@@ -128,6 +128,8 @@ export interface Experiment {
   author: AppUser
   projects: Project[]
   attachments: Attachment[]
+  reviewFeedbacks?: ReviewFeedback[]
+  reviewRequests?: ReviewRequest[]
   createdAt: string
   updatedAt: string
   submittedAt: string | null
@@ -137,10 +139,31 @@ export interface Experiment {
 // 审核反馈类型
 export interface ReviewFeedback {
   id: string
-  action: 'APPROVE' | 'REQUEST_REVISION'
+  action: 'APPROVE' | 'REQUEST_REVISION' | 'SUBMIT' | 'TRANSFER' | 'UNLOCK'
   feedback: string | null
   createdAt: string
   experimentId: string
+  reviewerId: string
+  reviewer: AppUser
+  attachments?: ReviewAttachment[]
+}
+
+// 审核附件类型
+export interface ReviewAttachment {
+  id: string
+  name: string
+  type: string
+  size: number
+  createdAt: string
+}
+
+// 审核请求类型
+export interface ReviewRequest {
+  id: string
+  status: 'PENDING' | 'COMPLETED' | 'TRANSFERRED' | 'CANCELLED'
+  note: string | null
+  createdAt: string
+  updatedAt: string
   reviewerId: string
   reviewer: AppUser
 }
@@ -185,8 +208,8 @@ interface AppContextType extends AppState {
   triggerExtraction: (experimentId: string) => Promise<boolean>
   updateExtractedInfo: (experimentId: string, info: ExtractedInfo) => Promise<boolean>
   // 审核
-  submitForReview: (experimentId: string) => Promise<boolean>
-  reviewExperiment: (experimentId: string, action: 'APPROVE' | 'REQUEST_REVISION', feedback?: string) => Promise<boolean>
+  submitForReview: (experimentId: string, reviewerIds?: string[], submitNote?: string) => Promise<boolean>
+  reviewExperiment: (experimentId: string, action: 'APPROVE' | 'REQUEST_REVISION' | 'TRANSFER', feedback?: string, transferToUserId?: string, attachmentIds?: string[]) => Promise<boolean>
   // 模板操作
   createTemplate: (data: Partial<Template>) => Promise<Template | null>
   updateTemplate: (id: string, data: Partial<Template>) => Promise<boolean>
@@ -436,10 +459,12 @@ export function AppProvider({ children }: { children: ReactNode }) {
   }
 
   // 审核
-  const submitForReview = async (experimentId: string): Promise<boolean> => {
+  const submitForReview = async (experimentId: string, reviewerIds?: string[], submitNote?: string): Promise<boolean> => {
     try {
       const res = await fetch(`/api/experiments/${experimentId}/submit`, {
         method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ reviewerIds, submitNote }),
       })
       if (res.ok) {
         const updated = await res.json()
@@ -455,12 +480,12 @@ export function AppProvider({ children }: { children: ReactNode }) {
     }
   }
 
-  const reviewExperiment = async (experimentId: string, action: 'APPROVE' | 'REQUEST_REVISION', feedback?: string): Promise<boolean> => {
+  const reviewExperiment = async (experimentId: string, action: 'APPROVE' | 'REQUEST_REVISION' | 'TRANSFER', feedback?: string, transferToUserId?: string, attachmentIds?: string[]): Promise<boolean> => {
     try {
       const res = await fetch(`/api/experiments/${experimentId}/review`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action, feedback }),
+        body: JSON.stringify({ action, feedback, transferToUserId, attachmentIds }),
       })
       if (res.ok) {
         const updated = await res.json()

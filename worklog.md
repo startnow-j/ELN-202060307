@@ -1145,3 +1145,98 @@ antiword "upload/projects/.../iMSC分化SOP_1.doc"
 - ✅ MyTasks 视角切换功能完善
 - ✅ Lint 检查通过
 - ✅ 应用运行正常
+
+---
+
+## Task ID: 20 - v3.3.6 审核历史功能恢复
+
+**日期**: 2025-03-05
+
+**背景**: 会话恢复后发现版本回退，ReviewHistory.tsx 组件不存在，需要恢复审核历史功能
+
+### 问题分析
+
+- **问题**: `ReviewHistory.tsx` 组件文件不存在
+- **影响**: 实验详情页无法显示审核历史记录
+- **原因**: 版本回退导致代码丢失
+
+### Work Log:
+
+#### 1. 更新 experiments API (`src/app/api/experiments/route.ts`)
+- 添加 `reviewRequests` 数据查询（三个位置）
+- 在数据转换中添加 `reviewRequests` 字段返回
+
+#### 2. 创建 ReviewHistory.tsx 组件 (`src/components/experiments/ReviewHistory.tsx`)
+- 简化的审核历史展示
+- 每个动作独立卡片（带背景色边框）
+- 向上箭头（↑）指示时间顺序
+- 锁定状态显示附件数量
+- 区分解锁操作类型（申请解锁/批准解锁/拒绝解锁）
+- 提交审核显示"提交给：XXX（角色）"
+- 转交审核显示"转交给：XXX（角色）"
+
+#### 3. 更新 ExperimentDetail.tsx
+- 导入 ReviewHistory 组件
+- 替换原有审核信息区域为 ReviewHistory 组件
+- 传递必要参数：reviewFeedbacks、reviewRequests、reviewStatus、reviewedAt、attachmentCount
+
+#### 4. 更新 AppContext.tsx 类型定义
+- 新增 `ReviewRequest` 接口
+- 更新 `ReviewFeedback.action` 支持更多操作类型
+- Experiment 接口新增 `reviewFeedbacks` 和 `reviewRequests` 可选字段
+
+### 文件变更:
+| 文件 | 变更类型 | 说明 |
+|------|---------|------|
+| src/app/api/experiments/route.ts | 修改 | 添加 reviewRequests 查询和返回 |
+| src/components/experiments/ReviewHistory.tsx | 新建 | 审核历史展示组件 |
+| src/components/experiments/ExperimentDetail.tsx | 修改 | 集成审核历史组件 |
+| src/contexts/AppContext.tsx | 修改 | 新增 ReviewRequest 类型 |
+
+### Stage Summary:
+- ✅ API 返回 reviewRequests 数据
+- ✅ ReviewHistory 组件创建完成
+- ✅ ExperimentDetail 集成审核历史
+- ✅ AppContext 类型定义更新
+- ✅ Lint 检查通过
+- ✅ 应用运行正常
+
+---
+Task ID: 1
+Agent: Main Agent
+Task: 修复实验记录保存时的导出错误
+
+Work Log:
+- 分析错误日志：发现 `experiment-migration.ts` 导入的函数在 `file-path.ts` 中不存在
+- 缺失的函数：`ensureDirectoryExists`, `generateLinkFilePath`, `getProjectExperimentsDir`
+- 在 `file-path.ts` 中添加了缺失的导出函数
+- 修复了 Turbopack 缓存问题（删除 .next 目录后服务器崩溃）
+- 重启开发服务器验证修复
+
+Stage Summary:
+- 问题原因：`experiment-migration.ts` 导入了 `file-path.ts` 中不存在的函数
+- 解决方案：
+  1. 导出 `ensureDirectoryExists` 函数
+  2. 添加 `getProjectExperimentsDir` 函数
+  3. 添加 `generateLinkFilePath` 函数
+- 服务器已恢复运行，API 正常响应
+
+---
+Task ID: 2
+Agent: Main Agent
+Task: 修复提交审核时显示"暂无可用的审核人"的问题
+
+Work Log:
+- 分析问题：用户报告提交审核时显示"暂无可用的审核人"，但项目中设置了多个项目负责人
+- 检查数据库结构：发现 `Project` 有两个相关字段
+  - `members: User[]` - 多对多关系，直接关联用户
+  - `projectMembers: ProjectMember[]` - 一对多关系，包含 `role` 字段
+- 发现 bug：API 代码使用 `project.members` 查询 `role: 'PROJECT_LEAD'`，但 `members` 是 `User[]`，没有 `role` 字段
+- 修复：将 `members` 改为 `projectMembers`
+- 验证：测试脚本确认现在可以正确获取项目负责人作为审核人
+
+Stage Summary:
+- 问题原因：API 使用错误的字段名 `members` 而不是 `projectMembers`
+- 解决方案：修改 `/api/experiments/[id]/reviewers/route.ts` 中的查询
+  - `members` → `projectMembers`
+- 验证结果：审核人列表现在可以正确显示 PI、研究员等项目负责人

@@ -74,6 +74,14 @@ export async function GET(request: NextRequest) {
               }
             },
             orderBy: { createdAt: 'desc' }
+          },
+          reviewRequests: {
+            include: {
+              reviewer: {
+                select: { id: true, name: true, email: true, role: true, avatar: true }
+              }
+            },
+            orderBy: { createdAt: 'desc' }
           }
         },
         orderBy: { updatedAt: 'desc' }
@@ -147,6 +155,14 @@ export async function GET(request: NextRequest) {
               }
             },
             orderBy: { createdAt: 'desc' }
+          },
+          reviewRequests: {
+            include: {
+              reviewer: {
+                select: { id: true, name: true, email: true, role: true, avatar: true }
+              }
+            },
+            orderBy: { createdAt: 'desc' }
           }
         },
         orderBy: { updatedAt: 'desc' }
@@ -206,6 +222,14 @@ export async function GET(request: NextRequest) {
               }
             },
             orderBy: { createdAt: 'desc' }
+          },
+          reviewRequests: {
+            include: {
+              reviewer: {
+                select: { id: true, name: true, email: true, role: true, avatar: true }
+              }
+            },
+            orderBy: { createdAt: 'desc' }
           }
         },
         orderBy: { updatedAt: 'desc' }
@@ -257,6 +281,15 @@ export async function GET(request: NextRequest) {
         createdAt: rf.createdAt.toISOString(),
         reviewerId: rf.reviewerId,
         reviewer: rf.reviewer
+      })) : [],
+      reviewRequests: exp.reviewRequests ? exp.reviewRequests.map(rr => ({
+        id: rr.id,
+        status: rr.status,
+        note: rr.note,
+        createdAt: rr.createdAt.toISOString(),
+        updatedAt: rr.updatedAt.toISOString(),
+        reviewerId: rr.reviewerId,
+        reviewer: rr.reviewer
       })) : [],
       createdAt: exp.createdAt.toISOString(),
       updatedAt: exp.updatedAt.toISOString(),

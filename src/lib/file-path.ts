@@ -61,6 +61,15 @@ function getUniqueFilename(dir: string, filename: string): string {
   return finalName
 }
 
+/**
+ * 确保目录存在
+ */
+function ensureDirectoryExists(dirPath: string): void {
+  if (!fs.existsSync(dirPath)) {
+    fs.mkdirSync(dirPath, { recursive: true })
+  }
+}
+
 // ==================== 暂存区路径 ====================
 
 /**
@@ -86,7 +95,7 @@ export function getDraftExperimentDir(userId: string, experimentTitle: string): 
 
 /**
  * 生成暂存区文件路径
- * 格式: upload/users/{用户ID}/drafts/{日期}_{实验标题}/{日期}_{原始文件名}.{扩展名}
+ * 用于上传附件时生成保存路径
  */
 export function generateDraftFilePath(
   userId: string,
@@ -94,79 +103,52 @@ export function generateDraftFilePath(
   originalFilename: string
 ): FilePathResult {
   const experimentDir = getDraftExperimentDir(userId, experimentTitle)
+  ensureDirectoryExists(experimentDir)
   
-  // 确保目录存在
-  if (!fs.existsSync(experimentDir)) {
-    fs.mkdirSync(experimentDir, { recursive: true })
-  }
+  const uniqueFilename = getUniqueFilename(experimentDir, originalFilename)
+  const fullPath = path.join(experimentDir, uniqueFilename)
   
-  // 生成文件名：日期_原始文件名.扩展名
-  const datePrefix = getDatePrefix()
-  const ext = path.extname(originalFilename)
-  const baseName = path.basename(originalFilename, ext)
-  const safeBaseName = sanitizeName(baseName)
-  const newFilename = `${datePrefix}_${safeBaseName}${ext}`
-  
-  // 处理文件名冲突
-  const finalFilename = getUniqueFilename(experimentDir, newFilename)
+  // 相对路径: users/{userId}/drafts/{date}_{title}/{filename}
+  const relativePath = path.join(
+    DRAFTS_DIR,
+    userId,
+    'drafts',
+    path.basename(experimentDir),
+    uniqueFilename
+  ).replace(/\\/g, '/')
   
   return {
-    fullPath: path.join(experimentDir, finalFilename),
-    relativePath: path.join(
-      UPLOAD_ROOT, 
-      DRAFTS_DIR, 
-      userId, 
-      'drafts',
-      `${getDatePrefix()}_${sanitizeName(experimentTitle)}`,
-      finalFilename
-    ).replace(/\\/g, '/'),
+    fullPath,
+    relativePath,
     directory: experimentDir
   }
 }
 
-// ==================== 项目存储区路径 ====================
-
-/**
- * 获取项目目录
- * 格式: upload/projects/{项目名称}/
- */
-export function getProjectDir(projectName: string): string {
-  const safeName = sanitizeName(projectName)
-  return path.join(process.cwd(), UPLOAD_ROOT, PROJECTS_DIR, safeName)
-}
-
-/**
- * 获取项目实验目录
- * 格式: upload/projects/{项目名称}/experiments/
- */
-export function getProjectExperimentsDir(projectName: string): string {
-  return path.join(getProjectDir(projectName), EXPERIMENTS_DIR)
-}
-
-/**
- * 获取项目文档目录
- * 格式: upload/projects/{项目名称}/documents/
- */
-export function getProjectDocumentsDir(projectName: string): string {
-  return path.join(getProjectDir(projectName), 'documents')
-}
+// ==================== 项目区路径 ====================
 
 /**
  * 获取项目实验目录
  * 格式: upload/projects/{项目名称}/experiments/{日期}_{实验标题}/
  */
 export function getProjectExperimentDir(projectName: string, experimentTitle: string): string {
-  const experimentsDir = getProjectExperimentsDir(projectName)
   const datePrefix = getDatePrefix()
+  const safeProjectName = sanitizeName(projectName)
   const safeTitle = sanitizeName(experimentTitle)
   const dirName = `${datePrefix}_${safeTitle}`
   
-  return path.join(experimentsDir, dirName)
+  return path.join(
+    process.cwd(),
+    UPLOAD_ROOT,
+    PROJECTS_DIR,
+    safeProjectName,
+    EXPERIMENTS_DIR,
+    dirName
+  )
 }
 
 /**
- * 生成项目文件路径
- * 格式: upload/projects/{项目名称}/experiments/{日期}_{实验标题}/{日期}_{原始文件名}.{扩展名}
+ * 生成项目区文件路径
+ * 用于上传附件时生成保存路径
  */
 export function generateProjectFilePath(
   projectName: string,
@@ -174,105 +156,24 @@ export function generateProjectFilePath(
   originalFilename: string
 ): FilePathResult {
   const experimentDir = getProjectExperimentDir(projectName, experimentTitle)
+  ensureDirectoryExists(experimentDir)
   
-  // 确保目录存在
-  if (!fs.existsSync(experimentDir)) {
-    fs.mkdirSync(experimentDir, { recursive: true })
-  }
+  const uniqueFilename = getUniqueFilename(experimentDir, originalFilename)
+  const fullPath = path.join(experimentDir, uniqueFilename)
   
-  // 生成文件名：日期_原始文件名.扩展名
-  const datePrefix = getDatePrefix()
-  const ext = path.extname(originalFilename)
-  const baseName = path.basename(originalFilename, ext)
-  const safeBaseName = sanitizeName(baseName)
-  const newFilename = `${datePrefix}_${safeBaseName}${ext}`
-  
-  // 处理文件名冲突
-  const finalFilename = getUniqueFilename(experimentDir, newFilename)
+  // 相对路径: projects/{projectName}/experiments/{date}_{title}/{filename}
+  const relativePath = path.join(
+    PROJECTS_DIR,
+    sanitizeName(projectName),
+    EXPERIMENTS_DIR,
+    path.basename(experimentDir),
+    uniqueFilename
+  ).replace(/\\/g, '/')
   
   return {
-    fullPath: path.join(experimentDir, finalFilename),
-    relativePath: path.join(
-      UPLOAD_ROOT,
-      PROJECTS_DIR,
-      sanitizeName(projectName),
-      EXPERIMENTS_DIR,
-      `${datePrefix}_${sanitizeName(experimentTitle)}`,
-      finalFilename
-    ).replace(/\\/g, '/'),
+    fullPath,
+    relativePath,
     directory: experimentDir
-  }
-}
-
-// ==================== .link 引用文件 ====================
-
-/**
- * 生成 .link 引用文件路径
- * 格式: upload/projects/{项目名称}/experiments/{实验ID}.link
- */
-export function generateLinkFilePath(
-  projectName: string,
-  experimentId: string
-): FilePathResult {
-  const experimentsDir = getProjectExperimentsDir(projectName)
-  
-  // 确保目录存在
-  if (!fs.existsSync(experimentsDir)) {
-    fs.mkdirSync(experimentsDir, { recursive: true })
-  }
-  
-  const filename = `${experimentId}.link`
-  
-  return {
-    fullPath: path.join(experimentsDir, filename),
-    relativePath: path.join(
-      UPLOAD_ROOT,
-      PROJECTS_DIR,
-      sanitizeName(projectName),
-      EXPERIMENTS_DIR,
-      filename
-    ).replace(/\\/g, '/'),
-    directory: experimentsDir
-  }
-}
-
-// ==================== 项目文档路径 ====================
-
-/**
- * 生成项目文档文件路径
- * 格式: upload/projects/{项目名称}/documents/{日期}_{原始文件名}.{扩展名}
- */
-export function generateProjectDocumentPath(
-  projectName: string,
-  originalFilename: string
-): FilePathResult {
-  const documentsDir = getProjectDocumentsDir(projectName)
-  
-  // 确保目录存在
-  if (!fs.existsSync(documentsDir)) {
-    fs.mkdirSync(documentsDir, { recursive: true })
-  }
-  
-  // 生成文件名：日期_原始文件名.扩展名
-  const datePrefix = getDatePrefix()
-  const ext = path.extname(originalFilename)
-  const baseName = path.basename(originalFilename, ext)
-  const safeBaseName = sanitizeName(baseName)
-  const newFilename = `${datePrefix}_${safeBaseName}${ext}`
-  
-  // 处理文件名冲突
-  const finalFilename = getUniqueFilename(documentsDir, newFilename)
-  
-  return {
-    fullPath: path.join(documentsDir, finalFilename),
-    relativePath: path.join(
-      UPLOAD_ROOT,
-      PROJECTS_DIR,
-      sanitizeName(projectName),
-      'documents',
-      finalFilename
-    ).replace(/\\/g, '/'),
-    directory: documentsDir
   }
 }
 
@@ -360,10 +261,51 @@ export function cleanupEmptyDirectories(dirPath: string): void {
 }
 
 /**
- * 确保目录存在
+ * 确保目录存在（导出版本）
  */
-export function ensureDirectoryExists(dirPath: string): void {
-  if (!fs.existsSync(dirPath)) {
-    fs.mkdirSync(dirPath, { recursive: true })
-  }
+export function ensureDirectoryExistsExport(dirPath: string): void {
+  ensureDirectoryExists(dirPath)
+}
+
+// 为了兼容旧代码，也导出 ensureDirectoryExists
+export { ensureDirectoryExists }
+
+/**
+ * 获取项目的实验目录
+ * 格式: upload/projects/{项目名称}/experiments/
+ */
+export function getProjectExperimentsDir(projectName: string): string {
+  const safeProjectName = sanitizeName(projectName)
+  return path.join(
+    process.cwd(),
+    UPLOAD_ROOT,
+    PROJECTS_DIR,
+    safeProjectName,
+    EXPERIMENTS_DIR
+  )
+}
+
+/**
+ * 生成跨项目链接文件路径
+ * 用于创建 .link 文件指向实际实验位置
+ */
+export function generateLinkFilePath(
+  projectName: string,
+  experimentId: string
+): { fullPath: string; relativePath: string } {
+  const experimentsDir = getProjectExperimentsDir(projectName)
+  ensureDirectoryExists(experimentsDir)
+  
+  const linkFilename = `${experimentId}.link`
+  const fullPath = path.join(experimentsDir, linkFilename)
+  
+  // 相对路径: projects/{projectName}/experiments/{experimentId}.link
+  const relativePath = path.join(
+    PROJECTS_DIR,
+    sanitizeName(projectName),
+    EXPERIMENTS_DIR,
+    linkFilename
+  ).replace(/\\/g, '/')
+  
+  return { fullPath, relativePath }
 }
