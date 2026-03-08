@@ -1156,6 +1156,120 @@ antiword "upload/projects/.../iMSC分化SOP_1.doc"
 
 ### 问题分析
 
+---
+
+## Task ID: 21 - v3.3.7 审核流程与解锁功能完善
+
+**日期**: 2025-03-08
+
+**背景**: 本次会话主要修复审核和解锁流程中的多个问题
+
+### Work Log:
+
+#### 1. 解锁申请处理API修复
+
+**问题**: 解锁申请处理时出现 PrismaClientValidationError
+- 错误: `Invalid value for argument 'role'. Expected UserRole`
+- 原因: 多处使用字符串而非Prisma枚举值
+
+**修复内容**:
+- `src/app/api/experiments/[id]/unlock-request/route.ts`
+  - 导入枚举: `UnlockRequestStatus`, `ReviewStatus`, `ProjectMemberRole`, `ReviewAction`
+  - 使用 `ReviewStatus.LOCKED` 代替 `'LOCKED'`
+  - 使用 `UnlockRequestStatus.PENDING/APPROVED/REJECTED` 代替字符串
+  - 使用 `ReviewAction.UNLOCK` 代替 `'UNLOCK'`
+  - 简化查询结构，避免嵌套 include 的类型推断问题
+
+- `src/app/api/unlock-requests/route.ts`
+  - 使用 `UnlockRequestStatus.PENDING` 代替 `'PENDING'`
+
+#### 2. 审核历史组件完善
+
+**新增功能**:
+- 卡片化设计：每个操作独立卡片，视觉分隔清晰
+- 时间指示：卡片间添加向上箭头，指示时间顺序
+- 目标审核人显示：提交审核显示"提交给谁"、转交审核显示"转交给谁"
+- 批注附件下载：支持下载审核人上传的批注文件
+
+**修复**:
+- React key 重复错误：使用唯一 ID 作为 key
+- 附件路径处理：统一添加 `upload/` 前缀
+
+#### 3. 批注附件权限修复
+
+**问题**: 审核人上传批注附件时被拒绝
+**修复**: 检查是否有 PENDING 状态的 ReviewRequest，允许审核人上传
+
+#### 4. 开发服务器缓存问题
+
+**问题**: Turbopack 缓存损坏导致服务器无法启动
+**解决**:
+- 清理 `.next` 和 `node_modules/.cache` 目录
+- 重新生成 Prisma 客户端: `bun run db:push`
+
+### 文件变更:
+
+| 文件 | 变更类型 | 说明 |
+|------|---------|------|
+| `src/app/api/experiments/[id]/unlock-request/route.ts` | 修复 | 枚举值修复、查询优化 |
+| `src/app/api/unlock-requests/route.ts` | 修复 | 枚举值修复 |
+| `src/components/experiments/ReviewHistory.tsx` | 重构 | 卡片化设计、批注附件显示 |
+| `src/app/api/experiments/route.ts` | 修改 | 返回所有reviewRequests和attachments |
+| `src/app/api/attachments/route.ts` | 修复 | PDF提取错误处理、审核人权限 |
+| `src/app/api/attachments/[id]/download/route.ts` | 修复 | 路径前缀处理 |
+| `src/components/tasks/MyTasks.tsx` | 完善 | 解锁申请处理对话框 |
+| `docs/SYSTEM_FEATURES_v3.3.md` | 重写 | 系统功能说明更新 |
+| `docs/REVIEW_MODULE.md` | 重写 | 审核模块说明更新 |
+| `docs/MY_TASKS_MODULE.md` | 重写 | 我的任务模块说明更新 |
+| `docs/PENDING_TASKS.md` | 更新 | 增加待修复项 |
+
+### Stage Summary:
+- ✅ 解锁申请处理功能修复
+- ✅ 审核历史组件完善
+- ✅ 批注附件功能完善
+- ✅ 文档全面更新
+- ✅ Lint 检查通过
+- ✅ 开发服务器正常运行
+
+---
+
+## 当前功能状态 (v3.3.7)
+
+### ✅ 已完成功能
+
+| 模块 | 功能 | 状态 |
+|------|------|------|
+| 用户认证 | 登录/注册/登出 | ✅ |
+| 用户管理 | 超级管理员管理用户 | ✅ |
+| 项目管理 | CRUD、成员管理、状态流转 | ✅ |
+| 项目管理 | 全局视角切换 | ✅ |
+| 项目管理 | 项目关系标记 | ✅ |
+| 实验记录 | 富文本编辑器 | ✅ |
+| 实验记录 | 附件管理 | ✅ |
+| 实验记录 | AI智能提取 | ✅ |
+| 实验记录 | 完整度评分 | ✅ |
+| 实验记录 | 全局视角切换 | ✅ |
+| 审核管理 | 提交审核、审核通过、要求修改 | ✅ |
+| 审核管理 | 指定审核人、转交审核 | ✅ |
+| **审核管理** | **审核历史卡片化重构** | **✅** |
+| **审核管理** | **批注附件上传与下载** | **✅** |
+| **解锁功能** | **解锁申请Tab** | **✅** |
+| **解锁功能** | **批准/拒绝解锁** | **✅** |
+| **解锁功能** | **枚举值类型安全** | **✅** |
+| 我的任务 | 五大Tab + 视角切换 | ✅ |
+| 模板管理 | CRUD | ✅ |
+
+### 🔧 待修复功能
+
+| 编号 | 问题 | 优先级 |
+|------|------|--------|
+| BUG-001 | 审核历史界面还需要优化 | 中 |
+| BUG-002 | 审核过程中删除的文件可能没有完全删除 | 高 |
+
+---
+
+*本文档持续更新，记录项目开发全过程*
+
 - **问题**: `ReviewHistory.tsx` 组件文件不存在
 - **影响**: 实验详情页无法显示审核历史记录
 - **原因**: 版本回退导致代码丢失

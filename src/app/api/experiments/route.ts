@@ -71,7 +71,8 @@ export async function GET(request: NextRequest) {
             include: {
               reviewer: {
                 select: { id: true, name: true, email: true, role: true, avatar: true }
-              }
+              },
+              attachments: true
             },
             orderBy: { createdAt: 'desc' }
           },
@@ -152,7 +153,8 @@ export async function GET(request: NextRequest) {
             include: {
               reviewer: {
                 select: { id: true, name: true, email: true, role: true, avatar: true }
-              }
+              },
+              attachments: true
             },
             orderBy: { createdAt: 'desc' }
           },
@@ -219,7 +221,8 @@ export async function GET(request: NextRequest) {
             include: {
               reviewer: {
                 select: { id: true, name: true, email: true, role: true, avatar: true }
-              }
+              },
+              attachments: true
             },
             orderBy: { createdAt: 'desc' }
           },
@@ -280,7 +283,14 @@ export async function GET(request: NextRequest) {
         feedback: rf.feedback,
         createdAt: rf.createdAt.toISOString(),
         reviewerId: rf.reviewerId,
-        reviewer: rf.reviewer
+        reviewer: rf.reviewer,
+        attachments: rf.attachments ? rf.attachments.map(att => ({
+          id: att.id,
+          name: att.name,
+          size: att.size,
+          type: att.type,
+          createdAt: att.createdAt.toISOString()
+        })) : []
       })) : [],
       reviewRequests: exp.reviewRequests ? exp.reviewRequests.map(rr => ({
         id: rr.id,

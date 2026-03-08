@@ -25,16 +25,20 @@ export async function GET(
       return NextResponse.json({ error: '附件不存在' }, { status: 404 })
     }
 
-    // 处理路径：移除开头的斜杠
-    const normalizedPath = attachment.path.replace(/^\/+/, '')
+    // 处理路径：统一添加 upload 前缀（如果路径不以 upload 开头）
+    let normalizedPath = attachment.path.replace(/^\/+/, '')
+    if (!normalizedPath.startsWith('upload/')) {
+      normalizedPath = 'upload/' + normalizedPath
+    }
     const filePath = path.join(process.cwd(), normalizedPath)
-    
+
     if (!fs.existsSync(filePath)) {
+      console.error(`File not found: ${filePath}`)
       return NextResponse.json({ error: '文件不存在' }, { status: 404 })
     }
 
     const fileBuffer = fs.readFileSync(filePath)
-    
+
     return new NextResponse(fileBuffer, {
       headers: {
         'Content-Type': attachment.type,

@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
 import { getUserIdFromToken } from '@/lib/auth'
-import { UnlockRequestStatus, ReviewStatus } from '@prisma/client'
+import { UnlockRequestStatus, ReviewStatus, ProjectMemberRole, ReviewAction } from '@prisma/client'
 
 // POST - 创建解锁申请
 export async function POST(
@@ -47,7 +47,7 @@ export async function POST(
     }
 
     // 检查是否已锁定
-    if (experiment.reviewStatus !== 'LOCKED') {
+    if (experiment.reviewStatus !== ReviewStatus.LOCKED) {
       return NextResponse.json({ error: '实验记录未锁定，无需申请解锁' }, { status: 400 })
     }
 
@@ -56,7 +56,7 @@ export async function POST(
       where: {
         experimentId,
         requesterId: userId,
-        status: 'PENDING'
+        status: UnlockRequestStatus.PENDING
       }
     })
 
@@ -135,6 +135,11 @@ export async function PUT(
       return NextResponse.json({ error: '参数错误' }, { status: 400 })
     }
 
+    // 批准或拒绝都必须填写理由
+    if (!response || !response.trim()) {
+      return NextResponse.json({ error: '请填写处理理由' }, { status: 400 })
+    }
+
     // 获取当前用户
     const currentUser = await db.user.findUnique({ where: { id: userId } })
     if (!currentUser) {
@@ -150,9 +155,13 @@ export async function PUT(
             experimentProjects: {
               include: {
                 project: {
-                  include: {
-                    owner: { select: { id: true } },
-                    members: { where: { role: 'PROJECT_LEAD' }, select: { userId: true } }
+                  select: {
+                    id: true,
+                    ownerId: true,
+                    projectMembers: {
+                      where: { role: ProjectMemberRole.PROJECT_LEAD },
+                      select: { userId: true }
+                    }
                   }
                 }
               }
@@ -173,14 +182,14 @@ export async function PUT(
     }
 
     // 检查申请状态
-    if (unlockRequest.status !== 'PENDING') {
+    if (unlockRequest.status !== UnlockRequestStatus.PENDING) {
       return NextResponse.json({ error: '该申请已处理' }, { status: 400 })
     }
 
     // 检查权限（管理员或项目负责人可处理）
     const isProjectLead = unlockRequest.experiment.experimentProjects.some(ep =>
-      ep.project.owner.id === userId ||
-      ep.project.members.some(m => m.userId === userId)
+      ep.project.ownerId === userId ||
+      ep.project.projectMembers.some(m => m.userId === userId)
     )
     const canProcess = currentUser.role === 'ADMIN' || currentUser.role === 'SUPER_ADMIN' || isProjectLead
 
@@ -194,7 +203,7 @@ export async function PUT(
       const updated = await tx.unlockRequest.update({
         where: { id: requestId },
         data: {
-          status: action === 'APPROVE' ? 'APPROVED' : 'REJECTED',
+          status: action === 'APPROVE' ? UnlockRequestStatus.APPROVED : UnlockRequestStatus.REJECTED,
           response: response || null,
           processedAt: new Date(),
           processorId: userId
@@ -213,14 +222,14 @@ export async function PUT(
         await tx.experiment.update({
           where: { id: experimentId },
           data: {
-            reviewStatus: 'NEEDS_REVISION' // 设为需修改状态，允许编辑
+            reviewStatus: ReviewStatus.NEEDS_REVISION // 设为需修改状态，允许编辑
           }
         })
 
         // 创建审核反馈记录（记录解锁操作）
         await tx.reviewFeedback.create({
           data: {
-            action: 'UNLOCK',
+            action: ReviewAction.UNLOCK,
             feedback: `批准解锁申请: ${unlockRequest.reason}` + (response ? ` | 处理意见: ${response}` : ''),
             experimentId,
             reviewerId: userId
@@ -305,3 +314,4 @@ export async function GET(
     return NextResponse.json({ error: '服务器错误' }, { status: 500 })
   }
 }
+

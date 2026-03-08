@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
 import { getUserIdFromToken } from '@/lib/auth'
+import { ProjectMemberRole, UnlockRequestStatus } from '@prisma/client'
 
 // 获取待处理的解锁申请列表
 export async function GET(request: NextRequest) {
@@ -21,7 +22,7 @@ export async function GET(request: NextRequest) {
 
     // 获取待处理的解锁申请
     const pendingRequests = await db.unlockRequest.findMany({
-      where: { status: 'PENDING' },
+      where: { status: UnlockRequestStatus.PENDING },
       include: {
         experiment: {
           include: {
@@ -34,7 +35,7 @@ export async function GET(request: NextRequest) {
                     name: true,
                     ownerId: true,
                     projectMembers: {
-                      where: { role: 'PROJECT_LEAD' },
+                      where: { role: ProjectMemberRole.PROJECT_LEAD },
                       select: { userId: true }
                     }
                   }

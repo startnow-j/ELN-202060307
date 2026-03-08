@@ -25,6 +25,15 @@ interface ReviewRequest {
   reviewer: AppUser
 }
 
+// 批注附件类型
+interface ReviewAttachment {
+  id: string
+  name: string
+  size: number
+  type: string
+  createdAt: string
+}
+
 // 审核反馈类型
 interface ReviewFeedback {
   id: string
@@ -33,6 +42,7 @@ interface ReviewFeedback {
   createdAt: string
   reviewerId: string
   reviewer: AppUser
+  attachments?: ReviewAttachment[]
 }
 
 interface ReviewHistoryProps {
@@ -75,6 +85,7 @@ export function ReviewHistory({
 }: ReviewHistoryProps) {
   // 构建审核历史事件列表
   const events: Array<{
+    id: string  // 唯一标识符
     type: string
     timestamp: string
     user?: AppUser
@@ -82,12 +93,14 @@ export function ReviewHistory({
     feedback?: string | null
     note?: string | null
     status?: string
+    attachments?: ReviewAttachment[]
   }> = []
 
   // 添加审核请求事件（提交审核）
   reviewRequests.forEach(request => {
     if (request.status === 'PENDING' || request.status === 'COMPLETED') {
       events.push({
+        id: `request-${request.id}`,
         type: 'SUBMIT',
         timestamp: request.createdAt,
         target: request.reviewer,
@@ -96,6 +109,7 @@ export function ReviewHistory({
     }
     if (request.status === 'TRANSFERRED') {
       events.push({
+        id: `transfer-${request.id}`,
         type: 'TRANSFER',
         timestamp: request.updatedAt,
         target: request.reviewer,
@@ -122,10 +136,12 @@ export function ReviewHistory({
     }
     
     events.push({
+      id: `feedback-${feedback.id}`,
       type: eventType,
       timestamp: feedback.createdAt,
       user: feedback.reviewer,
       feedback: feedback.feedback,
+      attachments: feedback.attachments,
     })
   })
 
@@ -160,6 +176,13 @@ export function ReviewHistory({
   // 如果没有审核历史，不显示
   if (events.length === 0) {
     return null
+  }
+
+  // 格式化文件大小
+  const formatFileSize = (bytes: number): string => {
+    if (bytes < 1024) return bytes + ' B'
+    if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB'
+    return (bytes / (1024 * 1024)).toFixed(1) + ' MB'
   }
 
   // 渲染单个事件卡片
@@ -222,7 +245,7 @@ export function ReviewHistory({
     }
 
     return (
-      <div key={`${event.type}-${event.timestamp}`}>
+      <div key={event.id}>
         <div className={`flex items-start gap-3 p-4 rounded-lg border ${borderColor} ${bgColor}`}>
           {icon}
           <div className="flex-1 min-w-0">
@@ -252,6 +275,25 @@ export function ReviewHistory({
               <p className="text-sm text-muted-foreground mt-2 bg-white/50 p-2 rounded">
                 💬 {event.note || event.feedback}
               </p>
+            )}
+            
+            {/* 批注附件 - 只显示名称，不提供下载 */}
+            {event.attachments && event.attachments.length > 0 && (
+              <div className="mt-2 space-y-1">
+                <p className="text-xs text-muted-foreground">📎 批注附件：</p>
+                <div className="flex flex-wrap gap-2">
+                  {event.attachments.map((att) => (
+                    <span
+                      key={att.id}
+                      className="inline-flex items-center gap-1 px-2 py-1 text-xs bg-white/50 rounded border border-gray-200"
+                      title={att.name}
+                    >
+                      <span className="truncate max-w-[150px]">{att.name}</span>
+                      <span className="text-muted-foreground">({formatFileSize(att.size)})</span>
+                    </span>
+                  ))}
+                </div>
+              </div>
             )}
           </div>
         </div>

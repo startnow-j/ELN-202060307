@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
 import { getUserIdFromToken } from '@/lib/auth'
 import { calculateCompletenessScore } from '@/lib/completenessScore'
+import { ProjectMemberRole } from '@prisma/client'
 
 // 提交审核
 export async function POST(
@@ -86,7 +87,7 @@ export async function POST(
         const projectMembers = await db.projectMember.findMany({
           where: {
             projectId: ep.projectId,
-            role: 'PROJECT_LEAD'
+            role: ProjectMemberRole.PROJECT_LEAD
           }
         })
         projectMembers.forEach(pm => validReviewerIds.add(pm.userId))

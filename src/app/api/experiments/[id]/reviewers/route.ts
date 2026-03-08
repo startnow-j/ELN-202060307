@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
 import { getUserIdFromToken } from '@/lib/auth'
+import { ProjectMemberRole } from '@prisma/client'
 
 // 获取可审核该实验的用户列表
 export async function GET(
@@ -25,7 +26,7 @@ export async function GET(
               include: {
                 owner: { select: { id: true, name: true, email: true, role: true, avatar: true } },
                 projectMembers: {
-                  where: { role: 'PROJECT_LEAD' },
+                  where: { role: ProjectMemberRole.PROJECT_LEAD },
                   include: {
                     user: { select: { id: true, name: true, email: true, role: true, avatar: true } }
                   }

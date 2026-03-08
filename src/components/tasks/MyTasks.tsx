@@ -163,6 +163,13 @@ export function MyTasks({ onViewExperiment, onEditExperiment }: MyTasksProps) {
   const [unlockReason, setUnlockReason] = useState('')
   const [isSubmittingUnlock, setIsSubmittingUnlock] = useState(false)
 
+  // 处理解锁申请对话框状态
+  const [processUnlockDialogOpen, setProcessUnlockDialogOpen] = useState(false)
+  const [processingUnlockRequest, setProcessingUnlockRequest] = useState<UnlockRequestItem | null>(null)
+  const [processUnlockAction, setProcessUnlockAction] = useState<'APPROVE' | 'REJECT'>('APPROVE')
+  const [processUnlockResponse, setProcessUnlockResponse] = useState('')
+  const [isProcessingUnlock, setIsProcessingUnlock] = useState(false)
+
   // 解锁申请Tab状态
   const [unlockRequests, setUnlockRequests] = useState<UnlockRequestItem[]>([])
   const [isLoadingUnlockRequests, setIsLoadingUnlockRequests] = useState(false)
@@ -203,7 +210,10 @@ export function MyTasks({ onViewExperiment, onEditExperiment }: MyTasksProps) {
   // 加载解锁申请列表
   const loadUnlockRequests = useCallback(async () => {
     // 只有管理员或项目负责人可以处理解锁申请
-    const projectsAsLead = projects.filter(p => p.ownerId === currentUser?.id)
+    if (!currentUser) return
+    // 使用当前 projects 状态值
+    const currentProjects = projects
+    const projectsAsLead = currentProjects.filter(p => p.ownerId === currentUser.id)
     if (!isAdmin && projectsAsLead.length === 0) return
     setIsLoadingUnlockRequests(true)
     try {
@@ -217,15 +227,21 @@ export function MyTasks({ onViewExperiment, onEditExperiment }: MyTasksProps) {
     } finally {
       setIsLoadingUnlockRequests(false)
     }
-  }, [isAdmin, projects, currentUser])
+  }, [isAdmin, currentUser?.id])
   
   // 初始加载和视角切换时重新加载
   useEffect(() => {
     if (currentUser) {
       loadData(viewMode)
+    }
+  }, [viewMode, currentUser, loadData])
+  
+  // 当 projects 加载完成后再加载解锁申请
+  useEffect(() => {
+    if (currentUser && projects.length > 0) {
       loadUnlockRequests()
     }
-  }, [viewMode, currentUser, loadData, loadUnlockRequests])
+  }, [currentUser?.id, projects.length])
 
   // 作为项目负责人的项目
   const myProjectsAsLead = projects.filter(p => p.ownerId === currentUser?.id)
@@ -235,15 +251,25 @@ export function MyTasks({ onViewExperiment, onEditExperiment }: MyTasksProps) {
     ? experiments.filter(e => e.reviewStatus === 'DRAFT')
     : experiments.filter(e => e.reviewStatus === 'DRAFT' && e.authorId === currentUser?.id)
 
-  // 待我审核 - 普通视角下仅显示被选择为审核人的实验
+  // 待我审核 - 普通视角下显示：
+  // 1. 被选择为审核人的实验（有 ReviewRequest 且状态为 PENDING）
+  // 2. 如果没有选择审核人，则项目 owner 可以审核
   const pendingMyReview = useGlobalView
     ? experiments.filter(e => e.reviewStatus === 'PENDING_REVIEW')
     : experiments.filter(e => {
         if (e.reviewStatus !== 'PENDING_REVIEW') return false
-        // 只有被选择的审核人（在 ReviewRequest 中有 PENDING 状态记录）才能看到
-        return e.reviewRequests?.some(rr =>
-          rr.reviewerId === currentUser?.id && rr.status === 'PENDING'
-        )
+        
+        // 检查是否有被选择的审核人
+        const pendingReviewRequests = e.reviewRequests?.filter(rr => rr.status === 'PENDING') || []
+        
+        if (pendingReviewRequests.length > 0) {
+          // 有被选择的审核人，只有被选择的审核人能看到
+          return pendingReviewRequests.some(rr => rr.reviewerId === currentUser?.id)
+        } else {
+          // 没有被选择的审核人，项目 owner 可以审核
+          // 检查用户是否是实验关联项目的 owner
+          return e.projects?.some(p => p.ownerId === currentUser?.id)
+        }
       })
 
   // 待我修改
@@ -258,9 +284,7 @@ export function MyTasks({ onViewExperiment, onEditExperiment }: MyTasksProps) {
 
   // 刷新数据
   const handleRefresh = async () => {
-    setIsLoading(true)
-    await refreshData()
-    setIsLoading(false)
+    await loadData(viewMode)
   }
 
   // 打开审核对话框
@@ -454,30 +478,43 @@ export function MyTasks({ onViewExperiment, onEditExperiment }: MyTasksProps) {
   }
 
   // 处理解锁申请（批准/拒绝）
-  const handleProcessUnlockRequest = async (
-    request: UnlockRequestItem, 
-    action: 'APPROVE' | 'REJECT',
-    response?: string
-  ) => {
-    setProcessingRequestId(request.id)
+  const openProcessUnlockDialog = (request: UnlockRequestItem, action: 'APPROVE' | 'REJECT') => {
+    setProcessingUnlockRequest(request)
+    setProcessUnlockAction(action)
+    setProcessUnlockResponse('')
+    setProcessUnlockDialogOpen(true)
+  }
+
+  // 提交处理解锁申请
+  const handleSubmitProcessUnlock = async () => {
+    if (!processingUnlockRequest || !processUnlockResponse.trim()) {
+      toast({
+        variant: 'destructive',
+        title: '请填写处理理由',
+      })
+      return
+    }
+
+    setIsProcessingUnlock(true)
     try {
-      const res = await fetch(`/api/experiments/${request.experiment.id}/unlock-request`, {
+      const res = await fetch(`/api/experiments/${processingUnlockRequest.experiment.id}/unlock-request`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          requestId: request.id,
-          action,
-          response
+          requestId: processingUnlockRequest.id,
+          action: processUnlockAction,
+          response: processUnlockResponse.trim()
         }),
       })
       
       if (res.ok) {
         toast({
-          title: action === 'APPROVE' ? '已批准解锁' : '已拒绝解锁',
-          description: action === 'APPROVE' 
+          title: processUnlockAction === 'APPROVE' ? '已批准解锁' : '已拒绝解锁',
+          description: processUnlockAction === 'APPROVE' 
             ? '实验记录已解锁，作者可以继续编辑' 
             : '解锁申请已被拒绝',
         })
+        setProcessUnlockDialogOpen(false)
         // 刷新解锁申请列表
         await loadUnlockRequests()
       } else {
@@ -489,7 +526,7 @@ export function MyTasks({ onViewExperiment, onEditExperiment }: MyTasksProps) {
         })
       }
     } finally {
-      setProcessingRequestId(null)
+      setIsProcessingUnlock(false)
     }
   }
 
@@ -941,8 +978,7 @@ export function MyTasks({ onViewExperiment, onEditExperiment }: MyTasksProps) {
                         </Button>
                         <Button
                           size="sm"
-                          onClick={() => handleProcessUnlockRequest(request, 'APPROVE')}
-                          disabled={processingRequestId === request.id}
+                          onClick={() => openProcessUnlockDialog(request, 'APPROVE')}
                         >
                           <CheckCircle className="w-4 h-4 mr-1" />
                           批准
@@ -950,8 +986,7 @@ export function MyTasks({ onViewExperiment, onEditExperiment }: MyTasksProps) {
                         <Button
                           size="sm"
                           variant="destructive"
-                          onClick={() => handleProcessUnlockRequest(request, 'REJECT')}
-                          disabled={processingRequestId === request.id}
+                          onClick={() => openProcessUnlockDialog(request, 'REJECT')}
                         >
                           <XCircle className="w-4 h-4 mr-1" />
                           拒绝
@@ -1209,6 +1244,52 @@ export function MyTasks({ onViewExperiment, onEditExperiment }: MyTasksProps) {
               disabled={isSubmittingUnlock || !unlockReason.trim()}
             >
               {isSubmittingUnlock ? '提交中...' : '提交申请'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* 处理解锁申请对话框 */}
+      <Dialog open={processUnlockDialogOpen} onOpenChange={setProcessUnlockDialogOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>{processUnlockAction === 'APPROVE' ? '批准解锁' : '拒绝解锁'}</DialogTitle>
+            <DialogDescription>
+              处理「{processingUnlockRequest?.experiment.title}」的解锁申请
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            {processingUnlockRequest && (
+              <div className="bg-amber-50 border border-amber-200 rounded-lg p-3">
+                <p className="text-sm font-medium text-amber-800 mb-1">申请人：{processingUnlockRequest.requester.name}</p>
+                <p className="text-sm font-medium text-amber-800 mb-1">解锁原因：</p>
+                <p className="text-sm text-amber-700">{processingUnlockRequest.reason}</p>
+              </div>
+            )}
+            <div className="space-y-2">
+              <label className="text-sm font-medium">
+                处理理由 <span className="text-destructive">*</span>
+              </label>
+              <Textarea
+                placeholder={processUnlockAction === 'APPROVE' 
+                  ? '请说明批准解锁的理由...' 
+                  : '请说明拒绝解锁的理由...'}
+                value={processUnlockResponse}
+                onChange={(e) => setProcessUnlockResponse(e.target.value)}
+                rows={4}
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setProcessUnlockDialogOpen(false)}>
+              取消
+            </Button>
+            <Button 
+              onClick={handleSubmitProcessUnlock}
+              disabled={isProcessingUnlock || !processUnlockResponse.trim()}
+              variant={processUnlockAction === 'REJECT' ? 'destructive' : 'default'}
+            >
+              {isProcessingUnlock ? '处理中...' : (processUnlockAction === 'APPROVE' ? '确认批准' : '确认拒绝')}
             </Button>
           </DialogFooter>
         </DialogContent>

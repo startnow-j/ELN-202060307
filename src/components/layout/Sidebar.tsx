@@ -34,15 +34,22 @@ export function Sidebar({ activeTab, onTabChange }: SidebarProps) {
     e => e.reviewStatus === 'DRAFT' && e.authorId === currentUser?.id
   ).length
 
-  // 计算待我审核数量（作为项目负责人的项目中的待审核记录）
-  const myProjectsAsLead = projects.filter(p => p.ownerId === currentUser?.id)
-  const pendingMyReviewCount = experiments.filter(
-    e => {
-      if (e.reviewStatus !== 'PENDING_REVIEW') return false
-      // 检查是否是用户作为负责人的项目的实验记录
-      return e.projects.some(p => myProjectsAsLead.some(mp => mp.id === p.id))
+  // 计算待我审核数量
+  // 1. 如果有 ReviewRequest 且状态为 PENDING，只有被选择的审核人能看到
+  // 2. 如果没有 ReviewRequest，项目 owner 可以审核
+  const pendingMyReviewCount = experiments.filter(e => {
+    if (e.reviewStatus !== 'PENDING_REVIEW') return false
+    
+    const pendingReviewRequests = e.reviewRequests?.filter(rr => rr.status === 'PENDING') || []
+    
+    if (pendingReviewRequests.length > 0) {
+      // 有被选择的审核人，只有被选择的审核人能看到
+      return pendingReviewRequests.some(rr => rr.reviewerId === currentUser?.id)
+    } else {
+      // 没有被选择的审核人，项目 owner 可以审核
+      return e.projects?.some(p => p.ownerId === currentUser?.id)
     }
-  ).length
+  }).length
 
   // 计算待我修改数量
   const needsMyRevisionCount = experiments.filter(

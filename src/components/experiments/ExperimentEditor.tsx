@@ -9,6 +9,7 @@ import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
 import { Progress } from '@/components/ui/progress'
 import { Separator } from '@/components/ui/separator'
+import { Checkbox } from '@/components/ui/checkbox'
 import {
   Select,
   SelectContent,
@@ -16,6 +17,14 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog'
 import { 
   ArrowLeft, 
   Save, 
@@ -25,7 +34,8 @@ import {
   Send,
   CheckCircle,
   AlertCircle,
-  Sparkles
+  Sparkles,
+  Users
 } from 'lucide-react'
 import { useApp, Experiment, ReviewStatus, ExtractedInfo, Attachment } from '@/contexts/AppContext'
 import { AttachmentManager } from '@/components/attachments/AttachmentManager'
@@ -35,6 +45,16 @@ interface ExperimentEditorProps {
   experimentId: string | null
   onSave: () => void
   onCancel: () => void
+}
+
+// 审核人类型
+interface Reviewer {
+  id: string
+  name: string
+  email: string
+  role: string
+  avatar: string | null
+  reason: string
 }
 
 // 审核状态配置
@@ -74,6 +94,13 @@ export function ExperimentEditor({ experimentId, onSave, onCancel }: ExperimentE
   const [extractionStatus, setExtractionStatus] = useState<string>('PENDING')
   const [extractedInfo, setExtractedInfo] = useState<ExtractedInfo | null>(null)
   const [attachments, setAttachments] = useState<Attachment[]>([])
+
+  // 提交审核对话框状态
+  const [showSubmitDialog, setShowSubmitDialog] = useState(false)
+  const [reviewers, setReviewers] = useState<Reviewer[]>([])
+  const [selectedReviewers, setSelectedReviewers] = useState<string[]>([])
+  const [submitNote, setSubmitNote] = useState('')
+  const [isLoadingReviewers, setIsLoadingReviewers] = useState(false)
 
   // 加载现有实验数据
   useEffect(() => {
@@ -203,7 +230,7 @@ export function ExperimentEditor({ experimentId, onSave, onCancel }: ExperimentE
     }
   }
 
-  // 提交审核
+  // 打开提交审核对话框
   const handleSubmitReview = async () => {
     if (!experimentId) return
     
@@ -218,12 +245,43 @@ export function ExperimentEditor({ experimentId, onSave, onCancel }: ExperimentE
       return
     }
     
+    // 打开对话框并获取审核人列表
+    setShowSubmitDialog(true)
+    setIsLoadingReviewers(true)
+    try {
+      const res = await fetch(`/api/experiments/${experimentId}/reviewers`)
+      if (res.ok) {
+        const data = await res.json()
+        setReviewers(data.reviewers || [])
+      }
+    } catch (error) {
+      console.error('Failed to load reviewers:', error)
+    } finally {
+      setIsLoadingReviewers(false)
+    }
+  }
+
+  // 切换审核人选择
+  const toggleReviewer = (reviewerId: string) => {
+    setSelectedReviewers(prev => 
+      prev.includes(reviewerId) 
+        ? prev.filter(id => id !== reviewerId)
+        : [...prev, reviewerId]
+    )
+  }
+
+  // 确认提交审核
+  const confirmSubmitReview = async () => {
+    if (!experimentId) return
+    
     setIsSubmitting(true)
     try {
-      const success = await submitForReview(experimentId)
+      const success = await submitForReview(experimentId, selectedReviewers, submitNote || undefined)
       if (success) {
         setReviewStatus('PENDING_REVIEW')
-        alert('已提交审核')
+        setShowSubmitDialog(false)
+        setSelectedReviewers([])
+        setSubmitNote('')
         onSave()
       } else {
         alert('提交失败')
@@ -584,6 +642,92 @@ export function ExperimentEditor({ experimentId, onSave, onCancel }: ExperimentE
           </div>
         </div>
       </div>
+
+      {/* 提交审核对话框 */}
+      <Dialog open={showSubmitDialog} onOpenChange={setShowSubmitDialog}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Send className="w-5 h-5" />
+              提交审核
+            </DialogTitle>
+            <DialogDescription>
+              选择审核人并填写提交留言（可选）
+            </DialogDescription>
+          </DialogHeader>
+          
+          <div className="space-y-4 py-4">
+            {/* 审核人选择 */}
+            <div className="space-y-2">
+              <label className="text-sm font-medium flex items-center gap-2">
+                <Users className="w-4 h-4" />
+                选择审核人（可选多个）
+              </label>
+              {isLoadingReviewers ? (
+                <div className="flex items-center justify-center py-4">
+                  <div className="w-6 h-6 border-2 border-primary border-t-transparent rounded-full animate-spin" />
+                </div>
+              ) : reviewers.length > 0 ? (
+                <div className="max-h-48 overflow-y-auto space-y-2 border rounded-lg p-2">
+                  {reviewers.map(reviewer => (
+                    <label
+                      key={reviewer.id}
+                      className="flex items-center gap-3 p-2 rounded-lg hover:bg-muted cursor-pointer"
+                    >
+                      <Checkbox
+                        checked={selectedReviewers.includes(reviewer.id)}
+                        onCheckedChange={() => toggleReviewer(reviewer.id)}
+                      />
+                      <div className="flex-1 min-w-0">
+                        <div className="font-medium truncate">{reviewer.name}</div>
+                        <div className="text-xs text-muted-foreground truncate">
+                          {reviewer.email}
+                        </div>
+                      </div>
+                      <Badge variant="outline" className="text-xs">
+                        {reviewer.reason}
+                      </Badge>
+                    </label>
+                  ))}
+                </div>
+              ) : (
+                <p className="text-sm text-muted-foreground py-2">
+                  暂无可用审核人，将自动分配给项目负责人或管理员
+                </p>
+              )}
+            </div>
+
+            {/* 提交留言 */}
+            <div className="space-y-2">
+              <label className="text-sm font-medium">提交留言（可选）</label>
+              <Textarea
+                placeholder="填写给审核人的留言..."
+                value={submitNote}
+                onChange={(e) => setSubmitNote(e.target.value)}
+                rows={3}
+                maxLength={500}
+              />
+              <p className="text-xs text-muted-foreground text-right">
+                {submitNote.length}/500
+              </p>
+            </div>
+          </div>
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowSubmitDialog(false)}>
+              取消
+            </Button>
+            <Button onClick={confirmSubmitReview} disabled={isSubmitting}>
+              {isSubmitting ? (
+                <div className="w-4 h-4 mr-2 border-2 border-white border-t-transparent rounded-full animate-spin" />
+              ) : (
+                <Send className="w-4 h-4 mr-2" />
+              )}
+              确认提交
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }

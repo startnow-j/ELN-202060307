@@ -157,7 +157,9 @@ async function extractPDFSummary(buffer: Buffer): Promise<PDFPreview> {
       let allText = ''
       let pageCount = 1
       
+      // 设置错误处理器
       pdfParser.on('pdfParser_dataError', () => {
+        console.log('[PDF Attachments] Parser error, returning empty result')
         resolve({
           type: 'pdf',
           pages: 1,
@@ -167,25 +169,48 @@ async function extractPDFSummary(buffer: Buffer): Promise<PDFPreview> {
       })
       
       pdfParser.on('pdfParser_dataReady', (pdfData: any) => {
-        pageCount = pdfData.Pages?.length || 1
-        for (const page of pdfData.Pages || []) {
-          for (const textItem of page.Texts || []) {
-            const decodedText = decodeURIComponent(textItem.R?.[0]?.T || '')
-            allText += decodedText + ' '
+        try {
+          pageCount = pdfData.Pages?.length || 1
+          for (const page of pdfData.Pages || []) {
+            for (const textItem of page.Texts || []) {
+              try {
+                const rawText = textItem.R?.[0]?.T || ''
+                // 安全解码，处理可能的 malformed URI 错误
+                if (rawText) {
+                  try {
+                    const decodedText = decodeURIComponent(rawText)
+                    allText += decodedText + ' '
+                  } catch {
+                    // 解码失败，尝试直接使用原始文本
+                    allText += rawText + ' '
+                  }
+                }
+              } catch {
+                // 跳过这个文本项
+              }
+            }
+            allText += '\n'
           }
-          allText += '\n'
+
+          const chars = allText.length
+          const summary = allText.slice(0, 500).trim()
+
+          console.log(`[PDF Attachments] Success, pages: ${pageCount}, chars: ${chars}`)
+          resolve({
+            type: 'pdf',
+            pages: pageCount,
+            chars,
+            summary
+          })
+        } catch (error) {
+          console.error('[PDF Attachments] Error in dataReady callback:', error)
+          resolve({
+            type: 'pdf',
+            pages: 1,
+            chars: 0,
+            summary: ''
+          })
         }
-        
-        const chars = allText.length
-        const summary = allText.slice(0, 500).trim()
-        
-        console.log(`[PDF Attachments] Success, pages: ${pageCount}, chars: ${chars}`)
-        resolve({
-          type: 'pdf',
-          pages: pageCount,
-          chars,
-          summary
-        })
       })
       
       pdfParser.parseBuffer(buffer)
@@ -327,14 +352,18 @@ export async function POST(request: NextRequest) {
 
     // 检查权限
     const user = await db.user.findUnique({ where: { id: userId } })
-    if (experiment.authorId !== userId && user?.role !== 'ADMIN' && user?.role !== 'SUPER_ADMIN') {
-      return NextResponse.json({ error: '无权限上传附件' }, { status: 403 })
-    }
+    const isAdmin = user?.role === 'ADMIN' || user?.role === 'SUPER_ADMIN'
+    const isAuthor = experiment.authorId === userId
 
-    // 如果是审核批注附件，允许上传；否则检查实验状态
-    if (!reviewFeedbackId && experiment.reviewStatus === 'LOCKED') {
-      return NextResponse.json({ error: '已锁定的实验记录不能上传附件' }, { status: 403 })
-    }
+    // 检查是否是该实验的审核人（有 PENDING 状态的 ReviewRequest）
+    const pendingReviewRequest = await db.reviewRequest.findFirst({
+      where: {
+        experimentId,
+        reviewerId: userId,
+        status: 'PENDING'
+      }
+    })
+    const isReviewer = !!pendingReviewRequest
 
     // 如果指定了 reviewFeedbackId，验证其存在性和权限
     if (reviewFeedbackId) {
@@ -347,8 +376,21 @@ export async function POST(request: NextRequest) {
       if (reviewFeedback.experimentId !== experimentId) {
         return NextResponse.json({ error: '审核反馈与实验不匹配' }, { status: 400 })
       }
-      if (reviewFeedback.reviewerId !== userId && user?.role !== 'ADMIN' && user?.role !== 'SUPER_ADMIN') {
+      if (reviewFeedback.reviewerId !== userId && !isAdmin) {
         return NextResponse.json({ error: '无权限上传批注附件' }, { status: 403 })
+      }
+    } else {
+      // 没有 reviewFeedbackId 时，检查上传权限
+      // 1. 作者可以上传普通附件（实验未锁定时）
+      // 2. 审核人可以上传批注附件（用于审核操作）
+      // 3. 管理员可以上传任何附件
+
+      if (isAuthor && experiment.reviewStatus === 'LOCKED') {
+        return NextResponse.json({ error: '已锁定的实验记录不能上传附件' }, { status: 403 })
+      }
+
+      if (!isAuthor && !isReviewer && !isAdmin) {
+        return NextResponse.json({ error: '无权限上传附件' }, { status: 403 })
       }
     }
 

@@ -98,7 +98,7 @@ export async function getProjectRole(userId: string, projectId: string): Promise
   })
   
   if (project?.ownerId === userId) {
-    return 'PROJECT_LEAD'
+    return ProjectMemberRole.PROJECT_LEAD
   }
   
   // 检查项目成员表
@@ -127,7 +127,7 @@ export async function getProjectLeads(projectId: string) {
   const projectLeads = await db.projectMember.findMany({
     where: {
       projectId,
-      role: 'PROJECT_LEAD'
+      role: ProjectMemberRole.PROJECT_LEAD
     },
     include: {
       user: {
@@ -241,7 +241,7 @@ export async function canReviewExperiment(userId: string, experimentId: string):
   // 检查是否为项目负责人的实验（但不能是作者）
   for (const ep of experiment.experimentProjects) {
     const role = await getProjectRole(userId, ep.projectId)
-    if (role === 'PROJECT_LEAD') return true
+    if (role === ProjectMemberRole.PROJECT_LEAD) return true
   }
   
   return false
@@ -269,7 +269,7 @@ export async function canUnlockExperiment(userId: string, experimentId: string):
   
   for (const ep of experiment.experimentProjects) {
     const role = await getProjectRole(userId, ep.projectId)
-    if (role === 'PROJECT_LEAD') return true
+    if (role === ProjectMemberRole.PROJECT_LEAD) return true
   }
   
   return false
@@ -368,7 +368,7 @@ export async function canUploadAttachment(userId: string, experimentId: string):
   // 项目负责人可以上传
   for (const ep of experiment.experimentProjects) {
     const role = await getProjectRole(userId, ep.projectId)
-    if (role === 'PROJECT_LEAD') return true
+    if (role === ProjectMemberRole.PROJECT_LEAD) return true
   }
   
   return false
@@ -484,7 +484,7 @@ export async function isUserProjectLead(userId: string): Promise<boolean> {
   const projectLeadMembership = await db.projectMember.count({
     where: {
       userId,
-      role: 'PROJECT_LEAD'
+      role: ProjectMemberRole.PROJECT_LEAD
     }
   })
   
@@ -537,7 +537,7 @@ export async function canCreateExperimentInProject(userId: string, projectId: st
   
   // 检查项目成员权限
   const role = await getProjectRole(userId, projectId)
-  if (role === 'PROJECT_LEAD' || role === 'MEMBER') {
+  if (role === ProjectMemberRole.PROJECT_LEAD || role === ProjectMemberRole.MEMBER) {
     return { allowed: true }
   }
   
@@ -568,7 +568,7 @@ export async function canCreateExperiment(userId: string): Promise<boolean> {
   const memberWithPermission = await db.projectMember.count({
     where: {
       userId,
-      role: { in: ['PROJECT_LEAD', 'MEMBER'] }
+      role: { in: [ProjectMemberRole.PROJECT_LEAD, ProjectMemberRole.MEMBER] }
     }
   })
   
@@ -590,7 +590,7 @@ export async function canCompleteProject(userId: string, projectId: string): Pro
   if (user?.role === 'SUPER_ADMIN' || user?.role === 'ADMIN') return true
   
   const role = await getProjectRole(userId, projectId)
-  return role === 'PROJECT_LEAD'
+  return role === ProjectMemberRole.PROJECT_LEAD
 }
 
 /**
@@ -606,7 +606,7 @@ export async function canUnlockCompletedProject(userId: string, projectId: strin
   if (user?.role === 'SUPER_ADMIN' || user?.role === 'ADMIN') return true
   
   const role = await getProjectRole(userId, projectId)
-  return role === 'PROJECT_LEAD'
+  return role === ProjectMemberRole.PROJECT_LEAD
 }
 
 /**
@@ -622,7 +622,7 @@ export async function canArchiveProject(userId: string, projectId: string): Prom
   if (user?.role === 'SUPER_ADMIN' || user?.role === 'ADMIN') return true
   
   const role = await getProjectRole(userId, projectId)
-  return role === 'PROJECT_LEAD'
+  return role === ProjectMemberRole.PROJECT_LEAD
 }
 
 /**
@@ -665,7 +665,7 @@ export async function getAvailableProjectStatusActions(
   
   const isSuperAdminUser = await isSuperAdmin(userId)
   const isAdminUser = await isAdmin(userId)
-  const isProjectLeadUser = (await getProjectRole(userId, projectId)) === 'PROJECT_LEAD'
+  const isProjectLeadUser = (await getProjectRole(userId, projectId)) === ProjectMemberRole.PROJECT_LEAD
   const canChange = isSuperAdminUser || isAdminUser || isProjectLeadUser
   
   if (!canChange) {
