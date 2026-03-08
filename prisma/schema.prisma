@@ -1,0 +1,322 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id                 String            @id @default(cuid())
+  email              String            @unique
+  name               String
+  password           String
+  role               UserRole          @default(RESEARCHER)
+  avatar             String?
+  isActive           Boolean           @default(true)
+  createdAt          DateTime          @default(now())
+  updatedAt          DateTime          @updatedAt
+  attachments        Attachment[]
+  auditLogs          AuditLog[]
+  experiments        Experiment[]
+  projectDocuments   ProjectDocument[]
+  projectMemberships ProjectMember[]
+  ownedProjects      Project[]         @relation("OwnedProjects")
+  reviewFeedbacks    ReviewFeedback[]
+  reviewRequests     ReviewRequest[]
+  templates          Template[]
+  processedUnlocks   UnlockRequest[]   @relation("UnlockProcessor")
+  unlockRequests     UnlockRequest[]   @relation("UnlockRequester")
+  projects           Project[]         @relation("ProjectToUser")
+
+  @@map("users")
+}
+
+model Project {
+  id                 String              @id @default(cuid())
+  name               String
+  description        String?
+  status             ProjectStatus       @default(ACTIVE)
+  startDate          DateTime?
+  endDate            DateTime?
+  expectedEndDate    DateTime?
+  actualEndDate      DateTime?
+  completedAt        DateTime?
+  archivedAt         DateTime?
+  createdAt          DateTime            @default(now())
+  updatedAt          DateTime            @updatedAt
+  ownerId            String
+  primaryLeader      String?
+  experimentProjects ExperimentProject[]
+  projectDocuments   ProjectDocument[]
+  projectMembers     ProjectMember[]
+  owner              User                @relation("OwnedProjects", fields: [ownerId], references: [id])
+  members            User[]              @relation("ProjectToUser")
+
+  @@map("projects")
+}
+
+model ProjectMember {
+  id        String            @id @default(cuid())
+  projectId String
+  userId    String
+  role      ProjectMemberRole @default(MEMBER)
+  joinedAt  DateTime          @default(now())
+  user      User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  project   Project           @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@unique([projectId, userId])
+  @@map("project_members")
+}
+
+model ProjectDocument {
+  id          String              @id @default(cuid())
+  name        String
+  type        ProjectDocumentType @default(OTHER)
+  description String?
+  path        String
+  size        Int
+  createdAt   DateTime            @default(now())
+  updatedAt   DateTime            @updatedAt
+  projectId   String
+  uploaderId  String
+  uploader    User                @relation(fields: [uploaderId], references: [id])
+  project     Project             @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@map("project_documents")
+}
+
+model Experiment {
+  id                 String              @id @default(cuid())
+  title              String
+  summary            String?
+  conclusion         String?
+  extractedInfo      String?
+  extractionStatus   ExtractionStatus    @default(PENDING)
+  extractionError    String?
+  reviewStatus       ReviewStatus        @default(DRAFT)
+  completenessScore  Int                 @default(0)
+  storageLocation    String?
+  primaryProjectId   String?
+  tags               String?
+  createdAt          DateTime            @default(now())
+  updatedAt          DateTime            @updatedAt
+  submittedAt        DateTime?
+  reviewedAt         DateTime?
+  authorId           String
+  attachments        Attachment[]
+  experimentProjects ExperimentProject[]
+  versions           ExperimentVersion[]
+  author             User                @relation(fields: [authorId], references: [id])
+  reviewFeedbacks    ReviewFeedback[]
+  reviewRequests     ReviewRequest[]
+  unlockRequests     UnlockRequest[]
+
+  @@map("experiments")
+}
+
+model ExperimentProject {
+  experimentId String
+  projectId    String
+  createdAt    DateTime   @default(now())
+  project      Project    @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  experiment   Experiment @relation(fields: [experimentId], references: [id], onDelete: Cascade)
+
+  @@id([experimentId, projectId])
+  @@map("experiment_projects")
+}
+
+model ExperimentVersion {
+  id            String     @id @default(cuid())
+  title         String
+  summary       String?
+  conclusion    String?
+  extractedInfo String?
+  versionNote   String?
+  createdAt     DateTime   @default(now())
+  experimentId  String
+  experiment    Experiment @relation(fields: [experimentId], references: [id], onDelete: Cascade)
+
+  @@map("experiment_versions")
+}
+
+model ReviewRequest {
+  id           String              @id @default(cuid())
+  status       ReviewRequestStatus @default(PENDING)
+  note         String?
+  createdAt    DateTime            @default(now())
+  updatedAt    DateTime            @updatedAt
+  experimentId String
+  reviewerId   String
+  reviewer     User                @relation(fields: [reviewerId], references: [id])
+  experiment   Experiment          @relation(fields: [experimentId], references: [id], onDelete: Cascade)
+
+  @@map("review_requests")
+}
+
+model ReviewFeedback {
+  id           String       @id @default(cuid())
+  action       ReviewAction
+  feedback     String?
+  createdAt    DateTime     @default(now())
+  experimentId String
+  reviewerId   String
+  reviewer     User         @relation(fields: [reviewerId], references: [id])
+  experiment   Experiment   @relation(fields: [experimentId], references: [id], onDelete: Cascade)
+  attachments  Attachment[]
+
+  @@map("review_feedbacks")
+}
+
+model UnlockRequest {
+  id           String              @id @default(cuid())
+  reason       String
+  status       UnlockRequestStatus @default(PENDING)
+  response     String?
+  createdAt    DateTime            @default(now())
+  updatedAt    DateTime            @updatedAt
+  processedAt  DateTime?
+  experimentId String
+  requesterId  String
+  processorId  String?
+  processor    User?               @relation("UnlockProcessor", fields: [processorId], references: [id])
+  requester    User                @relation("UnlockRequester", fields: [requesterId], references: [id])
+  experiment   Experiment          @relation(fields: [experimentId], references: [id], onDelete: Cascade)
+
+  @@map("unlock_requests")
+}
+
+model Template {
+  id          String   @id @default(cuid())
+  name        String
+  description String?
+  content     String
+  tags        String?
+  isPublic    Boolean  @default(false)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  creatorId   String
+  creator     User     @relation(fields: [creatorId], references: [id])
+
+  @@map("templates")
+}
+
+model Attachment {
+  id               String             @id @default(cuid())
+  name             String
+  type             String
+  size             Int
+  path             String
+  category         AttachmentCategory @default(DOCUMENT)
+  extractedText    String?
+  createdAt        DateTime           @default(now())
+  experimentId     String
+  uploaderId       String
+  reviewFeedbackId String?
+  uploader         User               @relation(fields: [uploaderId], references: [id])
+  experiment       Experiment         @relation(fields: [experimentId], references: [id], onDelete: Cascade)
+  reviewFeedback   ReviewFeedback?    @relation(fields: [reviewFeedbackId], references: [id], onDelete: SetNull)
+
+  @@map("attachments")
+}
+
+model AuditLog {
+  id         String      @id @default(cuid())
+  action     AuditAction
+  entityType String
+  entityId   String?
+  details    String?
+  ipAddress  String?
+  userAgent  String?
+  createdAt  DateTime    @default(now())
+  userId     String?
+  user       User?       @relation(fields: [userId], references: [id])
+
+  @@map("audit_logs")
+}
+
+enum UserRole {
+  SUPER_ADMIN
+  ADMIN
+  RESEARCHER
+}
+
+enum ProjectStatus {
+  ACTIVE
+  COMPLETED
+  ARCHIVED
+}
+
+enum ProjectMemberRole {
+  PROJECT_LEAD
+  MEMBER
+  VIEWER
+}
+
+enum ProjectDocumentType {
+  PROPOSAL
+  PROGRESS_REPORT
+  FINAL_REPORT
+  OTHER
+}
+
+enum ReviewStatus {
+  DRAFT
+  PENDING_REVIEW
+  NEEDS_REVISION
+  LOCKED
+}
+
+enum ExtractionStatus {
+  PENDING
+  PROCESSING
+  COMPLETED
+  FAILED
+}
+
+enum ReviewAction {
+  SUBMIT
+  APPROVE
+  REQUEST_REVISION
+  TRANSFER
+  UNLOCK
+}
+
+enum ReviewRequestStatus {
+  PENDING
+  COMPLETED
+  TRANSFERRED
+  CANCELLED
+}
+
+enum UnlockRequestStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  CANCELLED
+}
+
+enum AttachmentCategory {
+  DOCUMENT
+  DATA_FILE
+  IMAGE
+  RAW_DATA
+  LOCKED_PDF
+  OTHER
+}
+
+enum AuditAction {
+  CREATE
+  UPDATE
+  DELETE
+  LOGIN
+  LOGOUT
+  SUBMIT_REVIEW
+  APPROVE
+  REQUEST_REVISION
+  TRANSFER
+  UNLOCK
+  MIGRATE_EXPERIMENT
+  DOWNLOAD
+}
