@@ -47,8 +47,8 @@ function formatSize(bytes: number): string {
 }
 
 // 递归获取目录下所有文件
-// relativePath 会包含 'upload/' 前缀以匹配数据库存储格式
-function getAllFiles(dirPath: string, projectRoot: string): { path: string; relativePath: string; size: number; modifiedAt: Date }[] {
+// relativePath 不含 'upload/' 前缀，以匹配数据库存储格式
+function getAllFiles(dirPath: string, uploadRoot: string): { path: string; relativePath: string; size: number; modifiedAt: Date }[] {
   if (!fs.existsSync(dirPath)) return []
 
   const files: { path: string; relativePath: string; size: number; modifiedAt: Date }[] = []
@@ -59,12 +59,12 @@ function getAllFiles(dirPath: string, projectRoot: string): { path: string; rela
     const stats = fs.statSync(fullPath)
 
     if (stats.isDirectory()) {
-      files.push(...getAllFiles(fullPath, projectRoot))
+      files.push(...getAllFiles(fullPath, uploadRoot))
     } else {
-      // 生成包含 'upload/' 前缀的相对路径，以匹配数据库存储格式
-      // 例如：/home/z/my-project/upload/users/xxx/... -> upload/users/xxx/...
+      // 生成不含 'upload/' 前缀的相对路径，以匹配数据库存储格式
+      // 例如：/home/z/my-project/upload/projects/xxx/... -> projects/xxx/...
       const relativePath = fullPath
-        .replace(projectRoot, '')
+        .replace(uploadRoot, '')
         .replace(/^\/+/, '')
 
       files.push({
@@ -157,7 +157,7 @@ export async function GET(request: NextRequest) {
               fileCount: dirStats.fileCount,
               size: dirStats.size,
               sizeFormatted: formatSize(dirStats.size),
-              files: getAllFiles(userPath, projectRoot).map(f => ({
+              files: getAllFiles(userPath, uploadRoot).map(f => ({
                 path: f.path,
                 relativePath: f.relativePath,
                 size: f.size,
@@ -171,7 +171,7 @@ export async function GET(request: NextRequest) {
           }
         } else {
           // 用户存在，检查单个文件是否有对应记录
-          const files = getAllFiles(userPath, projectRoot)
+          const files = getAllFiles(userPath, uploadRoot)
           
           for (const file of files) {
             // 检查文件是否在数据库中有记录
@@ -225,7 +225,7 @@ export async function GET(request: NextRequest) {
               fileCount: dirStats.fileCount,
               size: dirStats.size,
               sizeFormatted: formatSize(dirStats.size),
-              files: getAllFiles(projectPath, projectRoot).map(f => ({
+              files: getAllFiles(projectPath, uploadRoot).map(f => ({
                 path: f.path,
                 relativePath: f.relativePath,
                 size: f.size,
@@ -239,7 +239,7 @@ export async function GET(request: NextRequest) {
           }
         } else {
           // 项目存在，检查单个文件
-          const files = getAllFiles(projectPath, projectRoot)
+          const files = getAllFiles(projectPath, uploadRoot)
           
           for (const file of files) {
             const attachment = await db.attachment.findFirst({
@@ -270,7 +270,7 @@ export async function GET(request: NextRequest) {
 
     // 检查 files 目录
     if (fs.existsSync(filesRoot)) {
-      const files = getAllFiles(filesRoot, projectRoot)
+      const files = getAllFiles(filesRoot, uploadRoot)
 
       for (const file of files) {
         const attachment = await db.attachment.findFirst({
@@ -295,7 +295,7 @@ export async function GET(request: NextRequest) {
 
     // 检查 images 目录
     if (fs.existsSync(imagesRoot)) {
-      const files = getAllFiles(imagesRoot, projectRoot)
+      const files = getAllFiles(imagesRoot, uploadRoot)
 
       for (const file of files) {
         const attachment = await db.attachment.findFirst({
@@ -429,7 +429,7 @@ export async function DELETE(request: NextRequest) {
       // 检查 files 目录
       const filesRoot = path.join(uploadRoot, 'files')
       if (fs.existsSync(filesRoot)) {
-        const files = getAllFiles(filesRoot, projectRoot)
+        const files = getAllFiles(filesRoot, uploadRoot)
         for (const file of files) {
           const attachment = await db.attachment.findFirst({
             where: { path: file.relativePath }
@@ -448,7 +448,7 @@ export async function DELETE(request: NextRequest) {
       // 检查 images 目录
       const imagesRoot = path.join(uploadRoot, 'images')
       if (fs.existsSync(imagesRoot)) {
-        const files = getAllFiles(imagesRoot, projectRoot)
+        const files = getAllFiles(imagesRoot, uploadRoot)
         for (const file of files) {
           const attachment = await db.attachment.findFirst({
             where: { path: file.relativePath }
@@ -472,7 +472,7 @@ export async function DELETE(request: NextRequest) {
           const userExists = await db.user.findUnique({ where: { id: userDir } })
           if (userExists) {
             const userPath = path.join(usersRoot, userDir)
-            const files = getAllFiles(userPath, projectRoot)
+            const files = getAllFiles(userPath, uploadRoot)
             for (const file of files) {
               const attachment = await db.attachment.findFirst({
                 where: { path: file.relativePath }
@@ -489,22 +489,58 @@ export async function DELETE(request: NextRequest) {
           }
         }
       }
+
+      // 检查项目目录中的孤立文件（项目存在但文件无记录）
+      const projectsRoot = path.join(uploadRoot, 'projects')
+      if (fs.existsSync(projectsRoot)) {
+        const projectDirs = fs.readdirSync(projectsRoot)
+        for (const projectDir of projectDirs) {
+          // 只处理存在的项目目录中的孤立文件
+          const project = await db.project.findFirst({ where: { name: projectDir } })
+          if (project) {
+            // 项目存在，检查其中的孤立文件
+            const projectPath = path.join(projectsRoot, projectDir)
+            const files = getAllFiles(projectPath, uploadRoot)
+            for (const file of files) {
+              const attachment = await db.attachment.findFirst({
+                where: { path: file.relativePath }
+              })
+              if (!attachment) {
+                try {
+                  fs.unlinkSync(file.path)
+                  deletedFiles.push(file.relativePath)
+                } catch (e) {
+                  failedFiles.push({ path: file.path, error: String(e) })
+                }
+              }
+            }
+          }
+          // 如果项目不存在，则属于 project_orphan 类型，已在上面的 project_orphan 逻辑中处理
+        }
+      }
     }
 
-    // 记录审计日志
-    await db.auditLog.create({
-      data: {
-        action: 'DELETE',
-        entityType: 'OrphanedFiles',
-        entityId: null,
-        userId,
-        details: JSON.stringify({
-          type,
-          deletedCount: deletedFiles.length,
-          failedCount: failedFiles.length,
-          deletedPaths: deletedFiles.slice(0, 20),
-          failedPaths: failedFiles.slice(0, 5)
+    // 记录审计日志（异步执行，失败不影响清理结果）
+    // 使用 Promise.resolve 包裹以避免阻塞响应
+    Promise.resolve().then(async () => {
+      try {
+        await db.auditLog.create({
+          data: {
+            action: 'DELETE',
+            entityType: 'OrphanedFiles',
+            entityId: null,
+            userId,
+            details: JSON.stringify({
+              type,
+              deletedCount: deletedFiles.length,
+              failedCount: failedFiles.length,
+              deletedPaths: deletedFiles.slice(0, 20),
+              failedPaths: failedFiles.slice(0, 5)
+            })
+          }
         })
+      } catch (auditError) {
+        console.error('Audit log failed (non-critical):', auditError)
       }
     })
 

@@ -1349,6 +1349,42 @@ Work Log:
 - 修复：将 `members` 改为 `projectMembers`
 - 验证：测试脚本确认现在可以正确获取项目负责人作为审核人
 
+---
+Task ID: 3
+Agent: Main Agent
+Task: v3.3.8.1 Bug修复 - 孤立文件清理功能完善
+
+Work Log:
+- BUG-001: 审核权限检查修复
+  - 问题：项目负责人审核实验时返回 403 Forbidden
+  - 原因：API 使用 `members` 而非 `projectMembers` 查询项目负责人
+  - 修复：将 `members` 改为 `projectMembers`
+  - 文件：`src/app/api/experiments/[id]/review/route.ts`
+
+- BUG-002: 附件删除物理文件路径修复
+  - 问题：删除附件后物理文件仍存在
+  - 原因：路径拼接缺少 `upload/` 前缀
+  - 修复：在 `filePath` 拼接时添加 `upload/` 前缀
+  - 文件：`src/app/api/attachments/[id]/route.ts`
+
+- BUG-003: 孤立文件清理功能遗漏
+  - 问题：附件孤立的15个文件无法删除，已删除用户的文件可以清理
+  - 原因：DELETE 方法中 `attachment_orphan` 类型遗漏了对 `projects` 目录中孤立文件的清理
+  - 分析：GET 方法检测孤立文件时会检查 `upload/projects` 目录，但 DELETE 方法没有对应清理逻辑
+  - 修复：在 DELETE 方法的 `attachment_orphan` 处理逻辑中添加对项目目录孤立文件的清理
+  - 文件：`src/app/api/admin/files/orphaned/route.ts`
+
+- 其他修复：
+  - 数据库权限修复：`chmod 666 db/custom.db`
+  - 审计日志写入权限修复
+
+Stage Summary:
+- ✅ 审核权限检查已修复
+- ✅ 附件删除物理文件路径已修复
+- ✅ 孤立文件清理功能已完善（添加项目目录孤立文件清理）
+- ✅ 数据库权限已修复
+- ✅ Lint 检查通过
+
 Stage Summary:
 - 问题原因：API 使用错误的字段名 `members` 而不是 `projectMembers`
 - 解决方案：修改 `/api/experiments/[id]/reviewers/route.ts` 中的查询
@@ -1429,3 +1465,61 @@ Stage Summary:
 - ✅ Lint 检查通过
 - ✅ 开发服务器运行正常
 
+
+---
+Task ID: 29
+Agent: Main Agent
+Task: 版本恢复与文档更新
+
+Work Log:
+- 发现版本回退问题：
+  - 本地代码使用了错误的 `members` 字段而非 `projectMembers`
+  - 附件删除路径缺少 `upload/` 前缀
+- 从远程仓库恢复代码：
+  - 添加远程仓库：`git remote add origin https://github.com/startnow-j/test-ELN-dev.git`
+  - 切换到 v3.3.8.1-bugfix 分支
+  - `git stash` 暂存本地修改，`git checkout v3.3.8.1-bugfix`
+- 验证修复：
+  - BUG-001：确认使用 `projectMembers` 字段进行权限检查 ✅
+  - BUG-002：确认添加 `upload/` 前缀到路径拼接 ✅
+- 文档更新：
+  - 删除 docs/REVIEW_HISTORY_DEVELOPMENT_GUIDE.md
+  - 删除 docs/REVIEW_WORKFLOW_DEVELOPMENT_GUIDE.md
+  - 新建 docs/REVIEW_HISTORY_MODULE.md（整合审核历史相关内容）
+
+Stage Summary:
+- ✅ 版本恢复完成（v3.3.8.1-bugfix 分支）
+- ✅ BUG-001 和 BUG-002 修复确认
+- ✅ 文档结构优化完成
+- ✅ Lint 检查通过
+
+---
+Task ID: 30
+Agent: Main Agent
+Task: 孤立文件检测和清理功能完善
+
+Work Log:
+- 问题诊断：
+  - 孤立文件列表不显示文件名（前端缺少 orphanedFiles 渲染）
+  - 孤立文件清理失败（路径匹配问题）
+- 根因分析：
+  - 后端：getAllFiles 生成的 relativePath 包含 `upload/` 前缀
+  - 数据库存储的路径不含 `upload/` 前缀（如 `projects/项目名/.../文件名`）
+  - 导致路径匹配失败，所有文件都被误判为孤立文件
+- 修复内容：
+  - 后端 `src/app/api/admin/files/orphaned/route.ts`：
+    - 修改 getAllFiles 函数，使用 `uploadRoot` 参数生成路径
+    - 生成的 relativePath 不含 `upload/` 前缀，匹配数据库格式
+    - 所有调用处统一使用 `uploadRoot` 参数
+  - 前端 `src/components/admin/FileManager.tsx`：
+    - 添加 `expandedOrphanDirs` 状态管理
+    - 孤立目录支持展开/折叠功能，显示文件列表
+    - 新增孤立文件列表渲染（orphanedFiles）
+- 测试验证：
+  - 创建测试孤立文件验证路径格式正确
+  - 确认 relativePath 格式与数据库存储一致
+
+Stage Summary:
+- ✅ 孤立文件检测路径格式修复
+- ✅ 前端孤立文件列表显示功能完善
+- ✅ Lint 检查通过

@@ -428,6 +428,9 @@ export function FileManager() {
   const [showCleanupDialog, setShowCleanupDialog] = useState(false)
   const [cleaningUp, setCleaningUp] = useState(false)
 
+  // 孤立目录展开状态
+  const [expandedOrphanDirs, setExpandedOrphanDirs] = useState<Set<number>>(new Set())
+
   // ==================== 数据获取 ====================
 
   const fetchStats = async () => {
@@ -1199,25 +1202,119 @@ export function FileManager() {
                       </div>
 
                       {/* 孤立目录列表 */}
-                      {orphanedData.orphanedDirectories.map((dir, index) => (
-                        <div key={index} className="border rounded-lg overflow-hidden">
+                      {orphanedData.orphanedDirectories.map((dir, dirIndex) => {
+                        const isExpanded = expandedOrphanDirs.has(dirIndex)
+                        const toggleExpand = () => {
+                          setExpandedOrphanDirs(prev => {
+                            const newSet = new Set(prev)
+                            if (newSet.has(dirIndex)) {
+                              newSet.delete(dirIndex)
+                            } else {
+                              newSet.add(dirIndex)
+                            }
+                            return newSet
+                          })
+                        }
+
+                        return (
+                          <div key={dirIndex} className="border rounded-lg overflow-hidden">
+                            <div
+                              className="flex items-center justify-between p-4 bg-muted/50 border-b cursor-pointer hover:bg-muted/70"
+                              onClick={toggleExpand}
+                            >
+                              <div className="flex items-center gap-3">
+                                <Folder className="w-5 h-5 text-destructive" />
+                                <div>
+                                  <span className="font-medium">{dir.relativePath}</span>
+                                  <div className="text-xs text-muted-foreground mt-1">
+                                    {dir.fileCount} 个文件 · {dir.sizeFormatted}
+                                  </div>
+                                </div>
+                              </div>
+                              <div className="flex items-center gap-2">
+                                <Badge variant="outline" className="text-xs">
+                                  {dir.type === 'user_deleted' ? '用户已删除' :
+                                   dir.type === 'project_orphan' ? '项目孤立' : '实验孤立'}
+                                </Badge>
+                                {isExpanded ? (
+                                  <ChevronDown className="w-4 h-4 text-muted-foreground" />
+                                ) : (
+                                  <ChevronRight className="w-4 h-4 text-muted-foreground" />
+                                )}
+                              </div>
+                            </div>
+
+                            {/* 文件列表（可展开） */}
+                            {isExpanded && dir.files && dir.files.length > 0 && (
+                              <div className="p-2 bg-muted/20 border-t max-h-60 overflow-y-auto">
+                                <div className="text-xs text-muted-foreground mb-2 px-2">
+                                  文件列表：
+                                </div>
+                                <div className="space-y-1">
+                                  {dir.files.map((file, fileIndex) => (
+                                    <div
+                                      key={fileIndex}
+                                      className="flex items-center justify-between p-2 bg-background rounded border text-sm"
+                                    >
+                                      <div className="flex items-center gap-2 flex-1 min-w-0">
+                                        <File className="w-4 h-4 text-muted-foreground flex-shrink-0" />
+                                        <span className="truncate" title={file.relativePath.split('/').pop()}>
+                                          {file.relativePath.split('/').pop()}
+                                        </span>
+                                      </div>
+                                      <div className="flex items-center gap-3 text-xs text-muted-foreground flex-shrink-0">
+                                        <span>{file.sizeFormatted}</span>
+                                        <span>{new Date(file.modifiedAt).toLocaleDateString()}</span>
+                                      </div>
+                                    </div>
+                                  ))}
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        )
+                      })}
+
+                      {/* 孤立文件列表（单独文件，非目录形式） */}
+                      {orphanedData.orphanedFiles.length > 0 && (
+                        <div className="border rounded-lg overflow-hidden">
                           <div className="flex items-center justify-between p-4 bg-muted/50 border-b">
                             <div className="flex items-center gap-3">
-                              <Folder className="w-5 h-5 text-destructive" />
+                              <File className="w-5 h-5 text-amber-500" />
                               <div>
-                                <span className="font-medium">{dir.relativePath}</span>
+                                <span className="font-medium">孤立文件（{orphanedData.orphanedFiles.length} 个）</span>
                                 <div className="text-xs text-muted-foreground mt-1">
-                                  {dir.fileCount} 个文件 · {dir.sizeFormatted}
+                                  数据库中无记录的单独文件
                                 </div>
                               </div>
                             </div>
                             <Badge variant="outline" className="text-xs">
-                              {dir.type === 'user_deleted' ? '用户已删除' :
-                               dir.type === 'project_orphan' ? '项目孤立' : '实验孤立'}
+                              附件孤立
                             </Badge>
                           </div>
+                          <div className="p-2 bg-muted/20 max-h-60 overflow-y-auto">
+                            <div className="space-y-1">
+                              {orphanedData.orphanedFiles.map((file, fileIndex) => (
+                                <div
+                                  key={fileIndex}
+                                  className="flex items-center justify-between p-2 bg-background rounded border text-sm"
+                                >
+                                  <div className="flex items-center gap-2 flex-1 min-w-0">
+                                    <File className="w-4 h-4 text-muted-foreground flex-shrink-0" />
+                                    <span className="truncate" title={file.relativePath.split('/').pop()}>
+                                      {file.relativePath.split('/').pop()}
+                                    </span>
+                                  </div>
+                                  <div className="flex items-center gap-3 text-xs text-muted-foreground flex-shrink-0">
+                                    <span>{file.sizeFormatted}</span>
+                                    <span>{new Date(file.modifiedAt).toLocaleDateString()}</span>
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
                         </div>
-                      ))}
+                      )}
                     </>
                   )}
                 </div>

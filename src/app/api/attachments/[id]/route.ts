@@ -37,8 +37,8 @@ export async function DELETE(
       return NextResponse.json({ error: '已锁定的实验记录不能删除附件' }, { status: 403 })
     }
 
-    // 删除文件
-    const filePath = path.join(process.cwd(), attachment.path)
+    // 删除文件（数据库路径不含upload/前缀，实际文件在upload/目录下）
+    const filePath = path.join(process.cwd(), 'upload', attachment.path)
     if (fs.existsSync(filePath)) {
       fs.unlinkSync(filePath)
     }
