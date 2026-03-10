@@ -44,7 +44,7 @@ import {
   Users,
   Loader2
 } from 'lucide-react'
-import { useApp, Experiment, ReviewStatus, AppUser } from '@/contexts/AppContext'
+import { useApp, Experiment, ReviewStatus, AppUser, authFetch } from '@/contexts/AppContext'
 import { AttachmentManager } from '@/components/attachments/AttachmentManager'
 import { ExtractedInfoPanel } from '@/components/experiments/ExtractedInfoPanel'
 import { ReviewHistory } from '@/components/experiments/ReviewHistory'
@@ -105,7 +105,7 @@ export function ExperimentDetail({ experiment: initialExperiment, onEdit, onBack
   // 加载最新的实验数据（确保包含 unlockRequests 和 projectRole）
   const loadExperimentData = useCallback(async () => {
     try {
-      const res = await fetch(`/api/experiments/${initialExperiment.id}`)
+      const res = await authFetch(`/api/experiments/${initialExperiment.id}`)
       if (res.ok) {
         const data = await res.json()
         setExperiment(data)
@@ -154,7 +154,7 @@ export function ExperimentDetail({ experiment: initialExperiment, onEdit, onBack
     setShowSubmitDialog(true)
     setIsLoadingReviewers(true)
     try {
-      const res = await fetch(`/api/experiments/${experiment.id}/reviewers`)
+      const res = await authFetch(`/api/experiments/${experiment.id}/reviewers`)
       if (res.ok) {
         const data = await res.json()
         setReviewers(data.reviewers || [])
@@ -197,7 +197,7 @@ export function ExperimentDetail({ experiment: initialExperiment, onEdit, onBack
     if (!attachmentIds || attachmentIds.length === 0) return false
     
     try {
-      const res = await fetch(`/api/experiments/${experiment.id}/extract`, {
+      const res = await authFetch(`/api/experiments/${experiment.id}/extract`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ attachmentIds })

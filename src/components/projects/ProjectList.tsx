@@ -56,7 +56,7 @@ import {
   UserPlus,
   Shield,
 } from 'lucide-react'
-import { useApp, Project } from '@/contexts/AppContext'
+import { useApp, Project, authFetch } from '@/contexts/AppContext'
 
 // 视角类型
 type ViewMode = 'default' | 'global'
@@ -104,7 +104,7 @@ export function ProjectList({ onCreateProject, onViewProject }: ProjectListProps
   const loadProjects = useCallback(async (mode: ViewMode) => {
     setIsLoading(true)
     try {
-      const res = await fetch(`/api/projects?viewMode=${mode}`, { credentials: 'include' })
+      const res = await authFetch(`/api/projects?viewMode=${mode}`)
       if (res.ok) {
         const data = await res.json()
         setProjects(data)

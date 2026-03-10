@@ -6,38 +6,76 @@ import React, { createContext, useContext, useState, useEffect, ReactNode } from
 
 const TOKEN_KEY = 'auth-token'
 
-// 获取存储的token
+// 内存中的 token 存储（最终备选方案）
+let memoryToken: string | null = null
+
+// 获取存储的token（优先级：sessionStorage > memory > localStorage）
+// sessionStorage 在 sandboxed iframe 中通常可用，且在会话期间持久化
 function getStoredToken(): string | null {
   if (typeof window === 'undefined') return null
-  return localStorage.getItem(TOKEN_KEY)
+
+  // 1. 优先使用 sessionStorage（sandboxed iframe 中可用，页面刷新后保持）
+  try {
+    const sessionToken = sessionStorage.getItem(TOKEN_KEY)
+    if (sessionToken) {
+      // 同步到内存
+      memoryToken = sessionToken
+      return sessionToken
+    }
+  } catch {
+    // sessionStorage 不可用，继续尝试其他方式
+  }
+
+  // 2. 检查内存存储
+  if (memoryToken) return memoryToken
+
+  // 3. 最后尝试 localStorage
+  try {
+    const localToken = localStorage.getItem(TOKEN_KEY)
+    if (localToken) {
+      // 同步到 sessionStorage 和内存
+      try { sessionStorage.setItem(TOKEN_KEY, localToken) } catch {}
+      memoryToken = localToken
+      return localToken
+    }
+  } catch {
+    // localStorage 不可用
+  }
+
+  return null
 }
 
-// 存储token
+// 存储token（同时存到所有可用位置）
 function setStoredToken(token: string): void {
-  if (typeof window === 'undefined') return
-  localStorage.setItem(TOKEN_KEY, token)
+  // 存到内存
+  memoryToken = token
+
+  // 尝试 sessionStorage（优先，因为页面刷新后保持）
+  try {
+    sessionStorage.setItem(TOKEN_KEY, token)
+  } catch {}
+
+  // 尝试 localStorage
+  try {
+    localStorage.setItem(TOKEN_KEY, token)
+  } catch {}
 }
 
-// 清除token
+// 清除token（从所有位置清除）
 function clearStoredToken(): void {
-  if (typeof window === 'undefined') return
-  localStorage.removeItem(TOKEN_KEY)
-}
+  memoryToken = null
 
-// 获取认证headers
-function getAuthHeaders(): HeadersInit {
-  const token = getStoredToken()
-  const headers: HeadersInit = {
-    'Content-Type': 'application/json',
-  }
-  if (token) {
-    headers['Authorization'] = `Bearer ${token}`
-  }
-  return headers
+  try {
+    sessionStorage.removeItem(TOKEN_KEY)
+  } catch {}
+
+  try {
+    localStorage.removeItem(TOKEN_KEY)
+  } catch {}
 }
 
 // 带认证的fetch
-async function authFetch(url: string, options: RequestInit = {}): Promise<Response> {
+export async function authFetch(url: string, options: RequestInit = {}): Promise<Response> {
   const token = getStoredToken()
   const headers: HeadersInit = {
     ...options.headers,
@@ -49,6 +87,8 @@ async function authFetch(url: string, options: RequestInit = {}): Promise<Respon
   return fetch(url, {
     ...options,
     headers,
+    // 包含 credentials 以支持 cookie（作为备选）
+    credentials: 'include',
   })
 }
 
@@ -332,24 +372,38 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   const login = async (email: string, password: string): Promise<boolean> => {
     try {
-      const res = await authFetch('/api/auth/login', {
+      console.log('[login] Starting login for:', email)
+      
+      // 使用 credentials: 'include' 让浏览器自动处理 cookie
+      const res = await fetch('/api/auth/login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email, password }),
+        credentials: 'include', // 重要：让浏览器自动设置和发送 cookie
       })
 
+      console.log('[login] Response status:', res.status)
+      
       if (res.ok) {
         const data = await res.json()
-        // 存储token到localStorage（跨域兼容）
+        console.log('[login] Got user:', data.user?.email)
+        
+        // 尝试存储 token 到 localStorage（如果可用）
+        // 主要认证方式是内存存储，localStorage 只是备份
         if (data.token) {
           setStoredToken(data.token)
         }
+        
         setState(prev => ({ ...prev, currentUser: data.user }))
         await refreshData()
         return true
+      } else {
+        const errorData = await res.json().catch(() => ({}))
+        console.log('[login] Login failed:', errorData)
       }
       return false
-    } catch {
+    } catch (err) {
+      console.error('[login] Error:', err)
       return false
     }
   }

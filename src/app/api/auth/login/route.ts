@@ -53,7 +53,11 @@ export async function POST(request: NextRequest) {
       console.error('Audit log error:', auditError)
     }
 
-    // 设置cookie
+    // 设置cookie - 针对 sandboxed iframe 的特殊配置
+    // 注意：sandboxed iframe 需要 SameSite=None 和 Secure
+    // 但 Secure 需要 HTTPS，开发环境可能不支持
+    // 所以我们同时设置两种方式：cookie + 返回 token
+    
     const isDev = process.env.NODE_ENV !== 'production'
     
     const response = NextResponse.json({
@@ -64,14 +68,16 @@ export async function POST(request: NextRequest) {
         role: user.role,
         avatar: user.avatar,
       },
-      token, // 返回token用于跨域场景
+      token, // 返回token用于 sandboxed 场景
     })
     
-    // 设置cookie - 开发环境使用更宽松的设置
+    // 设置 cookie - 开发环境使用 lax 模式
+    // 注意：sandboxed iframe 中 cookie 可能无法工作
+    // 所以我们主要依赖返回的 token + 前端内存存储
     response.cookies.set('auth-token', token, {
       httpOnly: true,
-      secure: !isDev, // 开发环境不使用secure
-      sameSite: isDev ? 'lax' : 'strict', // 开发环境使用lax
+      secure: false, // 开发环境
+      sameSite: 'lax', // lax 模式兼容性更好
       maxAge: 60 * 60 * 24 * 7, // 7 days
       path: '/',
     })
