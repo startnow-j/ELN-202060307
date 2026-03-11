@@ -19,6 +19,7 @@ import { FileManager } from '@/components/admin/FileManager'
 import { MyTasks } from '@/components/tasks/MyTasks'
 import { CreateProjectDialog } from '@/components/projects/CreateProjectDialog'
 import { Toaster } from '@/components/ui/toaster'
+import { Button } from '@/components/ui/button'
 
 function MainContent() {
   const { currentUser, isLoading, projects, experiments } = useApp()
@@ -28,6 +29,10 @@ function MainContent() {
   const [viewingProjectId, setViewingProjectId] = useState<string | null>(null)
   const [isCreatingExperiment, setIsCreatingExperiment] = useState(false)
   const [isCreatingProject, setIsCreatingProject] = useState(false)
+  
+  // 单独获取的项目详情（用于ARCHIVED等不在列表中的项目）
+  const [fetchedProject, setFetchedProject] = useState<any | null>(null)
+  const [isLoadingProject, setIsLoadingProject] = useState(false)
 
   // 加载中状态
   if (isLoading) {
@@ -73,8 +78,26 @@ function MainContent() {
   }
 
   // 查看项目详情
-  const handleViewProject = (id: string) => {
+  const handleViewProject = async (id: string) => {
     setViewingProjectId(id)
+    setFetchedProject(null)
+    
+    // 如果项目不在列表中，单独获取
+    const projectInList = projects.find(p => p.id === id)
+    if (!projectInList) {
+      setIsLoadingProject(true)
+      try {
+        const res = await fetch(`/api/projects/${id}`)
+        if (res.ok) {
+          const data = await res.json()
+          setFetchedProject(data)
+        }
+      } catch (error) {
+        console.error('Failed to fetch project:', error)
+      } finally {
+        setIsLoadingProject(false)
+      }
+    }
   }
 
   // 返回列表
@@ -82,6 +105,7 @@ function MainContent() {
     setEditingExperimentId(null)
     setViewingExperimentId(null)
     setViewingProjectId(null)
+    setFetchedProject(null)
     setIsCreatingExperiment(false)
   }
 
@@ -91,6 +115,7 @@ function MainContent() {
     setEditingExperimentId(null)
     setViewingExperimentId(null)
     setViewingProjectId(null)
+    setFetchedProject(null)
     setIsCreatingExperiment(false)
     setIsCreatingProject(false)
     // 切换Tab
@@ -126,7 +151,20 @@ function MainContent() {
 
     // 项目详情
     if (viewingProjectId) {
-      const project = projects.find(p => p.id === viewingProjectId)
+      // 优先使用列表中的项目
+      const project = projects.find(p => p.id === viewingProjectId) || fetchedProject
+      
+      if (isLoadingProject) {
+        return (
+          <div className="h-full flex items-center justify-center">
+            <div className="flex flex-col items-center gap-4">
+              <div className="w-12 h-12 rounded-full border-4 border-primary border-t-transparent animate-spin" />
+              <p className="text-muted-foreground">加载项目详情...</p>
+            </div>
+          </div>
+        )
+      }
+      
       if (project) {
         return (
           <ProjectDetail
@@ -139,6 +177,16 @@ function MainContent() {
           />
         )
       }
+      
+      // 项目不存在或无权访问
+      return (
+        <div className="h-full flex items-center justify-center">
+          <div className="text-center">
+            <p className="text-muted-foreground mb-4">项目不存在或您没有访问权限</p>
+            <Button onClick={handleBack}>返回列表</Button>
+          </div>
+        </div>
+      )
     }
 
     // 主要标签页

@@ -235,14 +235,15 @@ export function ProjectList({ onCreateProject, onViewProject }: ProjectListProps
     <Card
       key={project.id}
       className="hover:border-primary/40 cursor-pointer transition-colors group"
+      onClick={() => onViewProject(project.id)}
     >
       <CardContent className="p-6">
         <div className="flex items-start justify-between mb-3">
-          <div className="flex items-center gap-2" onClick={() => onViewProject(project.id)}>
+          <div className="flex items-center gap-2">
             <FolderKanban className="w-5 h-5 text-primary" />
             <h3 className="font-semibold truncate">{project.name}</h3>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2" onClick={(e) => e.stopPropagation()}>
             {getStatusBadge(project.status)}
             {getRelationBadge(project._relation)}
             {canManageProject(project) && (
@@ -270,7 +271,7 @@ export function ProjectList({ onCreateProject, onViewProject }: ProjectListProps
           </div>
         </div>
 
-        <p className="text-muted-foreground text-sm line-clamp-2 mb-4" onClick={() => onViewProject(project.id)}>
+        <p className="text-muted-foreground text-sm line-clamp-2 mb-4">
           {project.description || '暂无描述'}
         </p>
 
