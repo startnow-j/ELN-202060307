@@ -20,6 +20,7 @@ import { MyTasks } from '@/components/tasks/MyTasks'
 import { CreateProjectDialog } from '@/components/projects/CreateProjectDialog'
 import { Toaster } from '@/components/ui/toaster'
 import { Button } from '@/components/ui/button'
+import { ErrorBoundary, PartialErrorBoundary } from '@/components/common/ErrorBoundary'
 
 function MainContent() {
   const { currentUser, isLoading, projects, experiments } = useApp()
@@ -127,11 +128,13 @@ function MainContent() {
     // 实验编辑器
     if (isCreatingExperiment || editingExperimentId) {
       return (
-        <ExperimentEditor
-          experimentId={editingExperimentId}
-          onSave={handleBack}
-          onCancel={handleBack}
-        />
+        <PartialErrorBoundary onRetry={handleBack}>
+          <ExperimentEditor
+            experimentId={editingExperimentId}
+            onSave={handleBack}
+            onCancel={handleBack}
+          />
+        </PartialErrorBoundary>
       )
     }
 
@@ -140,11 +143,13 @@ function MainContent() {
       const experiment = experiments.find(e => e.id === viewingExperimentId)
       if (experiment) {
         return (
-          <ExperimentDetail
-            experiment={experiment}
-            onEdit={() => handleEditExperiment(viewingExperimentId)}
-            onBack={handleBack}
-          />
+          <PartialErrorBoundary onRetry={handleBack}>
+            <ExperimentDetail
+              experiment={experiment}
+              onEdit={() => handleEditExperiment(viewingExperimentId)}
+              onBack={handleBack}
+            />
+          </PartialErrorBoundary>
         )
       }
     }
@@ -167,14 +172,16 @@ function MainContent() {
       
       if (project) {
         return (
-          <ProjectDetail
-            project={project}
-            experiments={experiments.filter(e => 
-              e.projects.some(p => p.id === viewingProjectId)
-            )}
-            onBack={handleBack}
-            onViewExperiment={handleViewExperiment}
-          />
+          <PartialErrorBoundary onRetry={handleBack}>
+            <ProjectDetail
+              project={project}
+              experiments={experiments.filter(e => 
+                e.projects.some(p => p.id === viewingProjectId)
+              )}
+              onBack={handleBack}
+              onViewExperiment={handleViewExperiment}
+            />
+          </PartialErrorBoundary>
         )
       }
       
@@ -259,8 +266,10 @@ function MainContent() {
 
 export default function Home() {
   return (
-    <AppProvider>
-      <MainContent />
-    </AppProvider>
+    <ErrorBoundary>
+      <AppProvider>
+        <MainContent />
+      </AppProvider>
+    </ErrorBoundary>
   )
 }
