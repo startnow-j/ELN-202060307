@@ -1657,3 +1657,49 @@ Task: Phase 3.3 React Query Hooks 完善（渐进式迁移）
 ```
 833e438 refactor: Phase 3.3 React Query hooks 完善
 ```
+
+---
+Task ID: 23
+Agent: Main Agent
+Task: Phase 3.4 TemplateList 组件迁移到 React Query
+
+**日期**: 2025-03-05
+
+**背景**: 开始将现有组件从 AppContext 迁移到 React Query
+
+### Work Log:
+
+#### 1. 分析组件依赖
+- 发现 16 个组件使用 useApp()
+- 采用渐进式迁移策略
+
+#### 2. 更新 useTemplates.ts
+- 修改 useUpdateTemplate 支持 id 作为可选参数
+- 支持动态传入 id: `mutate({ id, data })` 或 `mutate({ data })`
+
+#### 3. 重构 TemplateList.tsx
+- 从 AppContext 迁移到 React Query hooks
+- 使用: useTemplates, useCreateTemplate, useUpdateTemplate, useDeleteTemplate, useAuth
+- 优化 UI 布局和交互
+- 添加加载状态和错误处理
+
+### Stage Summary:
+- ✅ TemplateList 组件迁移完成
+- ✅ useTemplates hook 更新完成
+- ✅ Lint 检查通过
+- ✅ Git 推送完成
+
+### 文件变更:
+| 文件 | 变更类型 | 说明 |
+|------|---------|------|
+| src/hooks/api/useTemplates.ts | 修改 | 更新 useUpdateTemplate |
+| src/components/templates/TemplateList.tsx | 重构 | 迁移到 React Query |
+
+### 下一步:
+- 继续迁移其他组件 (Dashboard, ReviewList 等)
+- 最终精简 AppContext，移除数据状态
+
+### Git提交记录:
+```
+4d144c3 refactor: Phase 3.4 TemplateList 组件迁移到 React Query
+```
