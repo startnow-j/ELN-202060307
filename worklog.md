@@ -1523,3 +1523,66 @@ Stage Summary:
 - ✅ 孤立文件检测路径格式修复
 - ✅ 前端孤立文件列表显示功能完善
 - ✅ Lint 检查通过
+
+---
+Task ID: 21
+Agent: Main Agent
+Task: Phase 3.2 FileManager 组件拆分
+
+**日期**: 2025-03-05
+
+**背景**: 继续架构优化，将 1366 行的 FileManager.tsx 拆分成更小、更易维护的模块
+
+### Work Log:
+
+#### 1. 创建类型定义文件
+- `src/components/admin/file-manager/types.ts` (143行)
+- 提取所有接口定义：FileNode, ProjectStat, UserDraftStat, DraftStats, FileStats, FileTreeData, SearchResult, OrphanedFile, OrphanedDirectory, OrphanedSummary, OrphanedData, SelectedPath, SelectedStats
+
+#### 2. 创建工具函数文件
+- `src/components/admin/file-manager/utils.ts` (71行)
+- formatBytes - 格式化文件大小
+- getNodeStats - 递归获取节点统计
+- getAllNodePaths - 递归获取所有路径
+- findNode - 查找指定节点
+
+#### 3. 创建子组件
+- `SelectableFileTreeNode.tsx` (156行) - 可选择的文件树节点
+- `SearchResultItem.tsx` (48行) - 搜索结果项
+
+#### 4. 创建自定义 Hook
+- `useFileManager.ts` (428行)
+- 数据获取：fetchStats, fetchTree, fetchOrphaned
+- 状态管理：选择、展开、搜索
+- 业务操作：批量下载、清理孤立文件
+
+#### 5. 创建模块导出
+- `index.ts` (16行) - 统一导出所有类型、函数、组件和 Hook
+
+#### 6. 重构主组件
+- `FileManager.tsx` 从 1366 行减少到 690 行（减少约 50%）
+- 导入拆分后的模块
+- 专注于 UI 渲染逻辑
+
+### Stage Summary:
+- ✅ FileManager.tsx 拆分完成（1366行 → 690行，-50%）
+- ✅ 创建 6 个新模块文件
+- ✅ Lint 检查通过
+- ✅ 应用运行正常
+- ✅ Git 推送完成
+
+### 文件变更:
+| 文件 | 变更类型 | 行数 |
+|------|---------|------|
+| src/components/admin/file-manager/types.ts | 新建 | 143 |
+| src/components/admin/file-manager/utils.ts | 新建 | 71 |
+| src/components/admin/file-manager/SelectableFileTreeNode.tsx | 新建 | 156 |
+| src/components/admin/file-manager/SearchResultItem.tsx | 新建 | 48 |
+| src/components/admin/file-manager/useFileManager.ts | 新建 | 428 |
+| src/components/admin/file-manager/index.ts | 新建 | 16 |
+| src/components/admin/FileManager.tsx | 重构 | 690 (原1366) |
+
+### Git提交记录:
+```
+ab90320 refactor: Phase 3.2 FileManager组件拆分
+```
