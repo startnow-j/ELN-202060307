@@ -192,10 +192,33 @@ GET 请求时，根据用户角色和项目状态返回不同数据：
 
 | 序号 | 任务 | 说明 | 状态 |
 |------|------|------|------|
-| T1 | 项目状态变更流程测试 | 确保唯一入口 | 待测试 |
-| T2 | 实验锁定功能测试 | COMPLETED/ARCHIVED状态不可编辑 | 待测试 |
-| T3 | ARCHIVED访问权限测试 | 不同角色访问归档项目 | 待测试 |
+| T1 | 项目状态变更流程测试 | 确保唯一入口 | ✅ 通过 |
+| T2 | 实验锁定功能测试 | COMPLETED/ARCHIVED状态不可编辑 | ✅ 通过 |
+| T3 | ARCHIVED访问权限测试 | 不同角色访问归档项目 | 🔧 修复中 |
 | T4 | 回归测试 | 确保其他功能不受影响 | 待测试 |
+
+#### T3 问题修复记录
+
+**问题**: SUPER_ADMIN 在项目列表中看不到未参与的归档项目卡片
+
+**原因**: `GET /api/projects` 在 `default` 视角下过滤掉了 `_relation === 'GLOBAL'` 的项目，即使是 SUPER_ADMIN 也无法看到
+
+**修复**: 修改项目列表 API，让管理员可以看到所有 ARCHIVED 状态的项目
+```typescript
+// 修复后的逻辑
+if (isAdmin) {
+  filteredProjects = projectsWithRelation.filter(p => 
+    p._relation === 'CREATED' || 
+    p._relation === 'LEADING' || 
+    p._relation === 'JOINED' ||
+    p.status === 'ARCHIVED'  // 管理员可以看到所有归档项目
+  )
+}
+```
+
+**待验证**: 
+- SUPER_ADMIN 点击归档项目后能否正常进入详情页
+- 解除归档操作是否有审计记录
 
 ---
 

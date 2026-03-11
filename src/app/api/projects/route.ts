@@ -124,10 +124,19 @@ export async function GET(request: NextRequest) {
       // 管理员返回所有项目（不需要过滤）
     } else {
       // default 普通视角 - 显示我创建或参与的项目
-      // 无论是管理员还是普通用户，都只显示与自己相关的项目
-      filteredProjects = projectsWithRelation.filter(p => 
-        p._relation === 'CREATED' || p._relation === 'LEADING' || p._relation === 'JOINED'
-      )
+      // 管理员额外可以看到所有 ARCHIVED 项目（以便解除归档）
+      if (isAdmin) {
+        filteredProjects = projectsWithRelation.filter(p => 
+          p._relation === 'CREATED' || 
+          p._relation === 'LEADING' || 
+          p._relation === 'JOINED' ||
+          p.status === 'ARCHIVED'  // 管理员可以看到所有归档项目
+        )
+      } else {
+        filteredProjects = projectsWithRelation.filter(p => 
+          p._relation === 'CREATED' || p._relation === 'LEADING' || p._relation === 'JOINED'
+        )
+      }
     }
 
     return NextResponse.json(filteredProjects)
