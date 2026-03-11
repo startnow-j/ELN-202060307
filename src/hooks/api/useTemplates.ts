@@ -99,16 +99,19 @@ export function useCreateTemplate() {
   })
 }
 
-export function useUpdateTemplate(id: string) {
+export function useUpdateTemplate(id?: string) {
   const queryClient = useQueryClient()
   const { toast } = useToast()
 
   return useMutation({
-    mutationFn: async (data: Partial<Template>) => {
-      const res = await authFetch(`/api/templates/${id}`, {
+    mutationFn: async (params: { id?: string; data: Partial<Template> }) => {
+      const templateId = params.id || id
+      if (!templateId) throw new Error('模板ID不能为空')
+      
+      const res = await authFetch(`/api/templates/${templateId}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(data),
+        body: JSON.stringify(params.data),
       })
       if (!res.ok) {
         const error = await res.json()
@@ -116,8 +119,11 @@ export function useUpdateTemplate(id: string) {
       }
       return res.json()
     },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: templateKeys.detail(id) })
+    onSuccess: (_, variables) => {
+      const templateId = variables.id || id
+      if (templateId) {
+        queryClient.invalidateQueries({ queryKey: templateKeys.detail(templateId) })
+      }
       queryClient.invalidateQueries({ queryKey: templateKeys.lists() })
       toast({ title: '模板更新成功' })
     },

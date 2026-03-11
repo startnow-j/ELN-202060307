@@ -1586,3 +1586,74 @@ Task: Phase 3.2 FileManager 组件拆分
 ```
 ab90320 refactor: Phase 3.2 FileManager组件拆分
 ```
+
+---
+Task ID: 22
+Agent: Main Agent
+Task: Phase 3.3 React Query Hooks 完善（渐进式迁移）
+
+**日期**: 2025-03-05
+
+**背景**: 为未来全面迁移到 React Query 做准备，创建完整的 React Query hooks
+
+### Work Log:
+
+#### 1. 创建 useTemplates.ts
+- useTemplates - 获取模板列表
+- useTemplate - 获取单个模板
+- useCreateTemplate - 创建模板
+- useUpdateTemplate - 更新模板
+- useDeleteTemplate - 删除模板
+- templateKeys - Query Keys 定义
+
+#### 2. 完善 useExperiments.ts
+- useExperiments - 获取实验列表（带过滤）
+- useExperiment - 获取单个实验详情
+- useFeedbacks - 获取审核历史
+- useCreateExperiment - 创建实验
+- useUpdateExperiment - 更新实验
+- useDeleteExperiment - 删除实验
+- useSubmitForReview - 提交审核
+- useReviewExperiment - 审核操作（通过/退回/转交）
+- useTriggerExtraction - AI 提取
+- useUnlockRequest - 解锁申请
+- experimentKeys - Query Keys 定义
+
+#### 3. 创建 useAuth.ts
+- useAuth - 获取当前用户
+- useUsers - 获取用户列表
+- useLogin - 登录
+- useLogout - 登出
+- useRegister - 注册
+- useIsLoggedIn - 登录状态检查
+- useUserRole - 用户角色检查
+
+#### 4. 更新 hooks/api/index.ts
+- 统一导出所有 hooks
+- 类型定义导出
+
+### Stage Summary:
+- ✅ useTemplates.ts 创建完成
+- ✅ useExperiments.ts 完善完成
+- ✅ useAuth.ts 创建完成
+- ✅ hooks/api/index.ts 更新完成
+- ✅ Lint 检查通过
+- ✅ Git 推送完成
+
+### 文件变更:
+| 文件 | 变更类型 | 说明 |
+|------|---------|------|
+| src/hooks/api/useTemplates.ts | 新建 | 模板 CRUD hooks |
+| src/hooks/api/useExperiments.ts | 完善 | AI提取、审核等功能 |
+| src/hooks/api/useAuth.ts | 新建 | 认证相关 hooks |
+| src/hooks/api/index.ts | 更新 | 统一导出 |
+
+### 渐进式迁移策略:
+1. ✅ 创建完整的 React Query hooks（本次完成）
+2. ⏳ 新组件优先使用 React Query hooks
+3. ⏳ 逐步迁移旧组件
+
+### Git提交记录:
+```
+833e438 refactor: Phase 3.3 React Query hooks 完善
+```

@@ -24,7 +24,6 @@ import {
   Trash2,
   Loader2
 } from 'lucide-react'
-import { useApp, Template } from '@/contexts/AppContext'
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -32,13 +31,25 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 import { RichTextEditor } from '@/components/editor/RichTextEditor'
+import {
+  useTemplates,
+  useCreateTemplate,
+  useUpdateTemplate,
+  useDeleteTemplate,
+  useAuth,
+} from '@/hooks/api'
+import type { Template } from '@/hooks/api'
 
 export function TemplateList() {
-  const { templates, createTemplate, updateTemplate, deleteTemplate, currentUser } = useApp()
+  const { data: templates = [], isLoading } = useTemplates()
+  const createMutation = useCreateTemplate()
+  const updateMutation = useUpdateTemplate()
+  const deleteMutation = useDeleteTemplate()
+  const { data: currentUser } = useAuth()
+  
   const [searchTerm, setSearchTerm] = useState('')
   const [isCreateOpen, setIsCreateOpen] = useState(false)
   const [editingTemplate, setEditingTemplate] = useState<Template | null>(null)
-  const [isLoading, setIsLoading] = useState(false)
   
   // 表单状态
   const [form, setForm] = useState({
@@ -58,44 +69,32 @@ export function TemplateList() {
     return matchesSearch && hasAccess
   })
 
-  const handleCreate = async () => {
+  const handleSave = async () => {
     if (!form.name.trim()) {
       alert('请输入模板名称')
       return
     }
 
-    setIsLoading(true)
-    try {
-      if (editingTemplate) {
-        await updateTemplate(editingTemplate.id, {
-          name: form.name,
-          description: form.description || null,
-          content: form.content,
-          tags: form.tags || null,
-          isPublic: form.isPublic
-        })
-      } else {
-        await createTemplate({
-          name: form.name,
-          description: form.description || null,
-          content: form.content,
-          tags: form.tags || null,
-          isPublic: form.isPublic
-        })
-      }
-      setIsCreateOpen(false)
-      resetForm()
-    } catch (error) {
-      console.error('Failed to save template:', error)
-      alert('保存失败，请重试')
-    } finally {
-      setIsLoading(false)
+    const data = {
+      name: form.name,
+      description: form.description || null,
+      content: form.content,
+      tags: form.tags || null,
+      isPublic: form.isPublic
     }
+
+    if (editingTemplate) {
+      await updateMutation.mutateAsync({ id: editingTemplate.id, data })
+    } else {
+      await createMutation.mutateAsync(data)
+    }
+    setIsCreateOpen(false)
+    resetForm()
   }
 
   const handleDelete = async (id: string) => {
     if (confirm('确定要删除这个模板吗？')) {
-      await deleteTemplate(id)
+      await deleteMutation.mutateAsync(id)
     }
   }
 
@@ -120,6 +119,16 @@ export function TemplateList() {
       isPublic: template.isPublic
     })
     setIsCreateOpen(true)
+  }
+
+  const isSaving = createMutation.isPending || updateMutation.isPending
+
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <Loader2 className="w-8 h-8 animate-spin text-primary" />
+      </div>
+    )
   }
 
   return (
@@ -208,7 +217,7 @@ export function TemplateList() {
                 )}
 
                 <div className="mt-4 pt-4 border-t text-sm text-muted-foreground">
-                  创建者: {template.creator.name}
+                  创建者: {template.creator?.name || '未知'}
                 </div>
               </CardContent>
             </Card>
@@ -303,8 +312,8 @@ export function TemplateList() {
             <Button variant="outline" onClick={() => { setIsCreateOpen(false); resetForm() }}>
               取消
             </Button>
-            <Button onClick={handleCreate} disabled={isLoading}>
-              {isLoading && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
+            <Button onClick={handleSave} disabled={isSaving}>
+              {isSaving && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
               {editingTemplate ? '保存' : '创建'}
             </Button>
           </DialogFooter>
