@@ -717,3 +717,222 @@ export async function getAvailableProjectStatusActions(
 export async function canManageProjectDocuments(userId: string, projectId: string): Promise<boolean> {
   return hasProjectPermission(userId, projectId, 'manage_docs')
 }
+
+// ==================== 项目状态与实验权限检查 ====================
+
+/**
+ * 检查实验是否可编辑（基于项目状态）
+ * COMPLETED/ARCHIVED 状态的项目中的实验不可编辑
+ */
+export async function canEditExperimentByProjectStatus(
+  experimentId: string
+): Promise<{ canEdit: boolean; reason?: string }> {
+  const experiment = await db.experiment.findUnique({
+    where: { id: experimentId },
+    include: {
+      experimentProjects: {
+        include: {
+          project: {
+            select: { id: true, name: true, status: true }
+          }
+        }
+      }
+    }
+  })
+
+  if (!experiment) {
+    return { canEdit: false, reason: '实验不存在' }
+  }
+
+  // 检查所有关联项目的状态
+  for (const ep of experiment.experimentProjects) {
+    if (ep.project.status === 'COMPLETED') {
+      return { 
+        canEdit: false, 
+        reason: `项目「${ep.project.name}」已完成，实验不可编辑` 
+      }
+    }
+    if (ep.project.status === 'ARCHIVED') {
+      return { 
+        canEdit: false, 
+        reason: `项目「${ep.project.name}」已归档，实验不可编辑` 
+      }
+    }
+  }
+
+  return { canEdit: true }
+}
+
+/**
+ * 检查是否可申请解锁（基于项目状态）
+ * COMPLETED/ARCHIVED 状态的项目中的实验不可申请解锁
+ */
+export async function canRequestUnlockByProjectStatus(
+  experimentId: string
+): Promise<{ canRequest: boolean; reason?: string }> {
+  const experiment = await db.experiment.findUnique({
+    where: { id: experimentId },
+    include: {
+      experimentProjects: {
+        include: {
+          project: {
+            select: { id: true, name: true, status: true }
+          }
+        }
+      }
+    }
+  })
+
+  if (!experiment) {
+    return { canRequest: false, reason: '实验不存在' }
+  }
+
+  // 检查所有关联项目的状态
+  for (const ep of experiment.experimentProjects) {
+    if (ep.project.status === 'COMPLETED') {
+      return { 
+        canRequest: false, 
+        reason: `项目「${ep.project.name}」已完成，不可申请解锁` 
+      }
+    }
+    if (ep.project.status === 'ARCHIVED') {
+      return { 
+        canRequest: false, 
+        reason: `项目「${ep.project.name}」已归档，不可申请解锁` 
+      }
+    }
+  }
+
+  return { canRequest: true }
+}
+
+/**
+ * 检查是否可提交审核（基于项目状态）
+ * COMPLETED/ARCHIVED 状态的项目中的实验不可提交审核
+ */
+export async function canSubmitReviewByProjectStatus(
+  experimentId: string
+): Promise<{ canSubmit: boolean; reason?: string }> {
+  const experiment = await db.experiment.findUnique({
+    where: { id: experimentId },
+    include: {
+      experimentProjects: {
+        include: {
+          project: {
+            select: { id: true, name: true, status: true }
+          }
+        }
+      }
+    }
+  })
+
+  if (!experiment) {
+    return { canSubmit: false, reason: '实验不存在' }
+  }
+
+  // 检查所有关联项目的状态
+  for (const ep of experiment.experimentProjects) {
+    if (ep.project.status === 'COMPLETED') {
+      return { 
+        canSubmit: false, 
+        reason: `项目「${ep.project.name}」已完成，不可提交审核` 
+      }
+    }
+    if (ep.project.status === 'ARCHIVED') {
+      return { 
+        canSubmit: false, 
+        reason: `项目「${ep.project.name}」已归档，不可提交审核` 
+      }
+    }
+  }
+
+  return { canSubmit: true }
+}
+
+/**
+ * 检查用户是否可访问已归档项目
+ * - SUPER_ADMIN: 完全访问
+ * - ADMIN: 完全访问（但解除归档需联系SUPER_ADMIN）
+ * - PROJECT_LEAD/MEMBER: 只读访问（查看+下载）
+ * - 普通用户: 不可访问
+ */
+export async function canAccessArchivedProject(
+  userId: string,
+  projectId: string
+): Promise<{ 
+  canAccess: boolean
+  accessLevel: 'full' | 'readonly' | 'none'
+  reason?: string 
+}> {
+  const user = await db.user.findUnique({
+    where: { id: userId },
+    select: { role: true }
+  })
+
+  if (!user) {
+    return { canAccess: false, accessLevel: 'none', reason: '用户不存在' }
+  }
+
+  // SUPER_ADMIN 和 ADMIN 有完全访问权限
+  if (user.role === 'SUPER_ADMIN' || user.role === 'ADMIN') {
+    return { canAccess: true, accessLevel: 'full' }
+  }
+
+  // 检查是否是项目成员
+  const projectRole = await getProjectRole(userId, projectId)
+
+  if (projectRole) {
+    // 项目成员有只读权限
+    return { canAccess: true, accessLevel: 'readonly' }
+  }
+
+  // 普通用户不可访问归档项目
+  return { 
+    canAccess: false, 
+    accessLevel: 'none', 
+    reason: '已归档项目仅对项目成员可见' 
+  }
+}
+
+/**
+ * 检查是否可删除实验（基于项目状态）
+ * COMPLETED/ARCHIVED 状态的项目中的实验不可删除
+ */
+export async function canDeleteExperimentByProjectStatus(
+  experimentId: string
+): Promise<{ canDelete: boolean; reason?: string }> {
+  const experiment = await db.experiment.findUnique({
+    where: { id: experimentId },
+    include: {
+      experimentProjects: {
+        include: {
+          project: {
+            select: { id: true, name: true, status: true }
+          }
+        }
+      }
+    }
+  })
+
+  if (!experiment) {
+    return { canDelete: false, reason: '实验不存在' }
+  }
+
+  // 检查所有关联项目的状态
+  for (const ep of experiment.experimentProjects) {
+    if (ep.project.status === 'COMPLETED') {
+      return { 
+        canDelete: false, 
+        reason: `项目「${ep.project.name}」已完成，实验不可删除` 
+      }
+    }
+    if (ep.project.status === 'ARCHIVED') {
+      return { 
+        canDelete: false, 
+        reason: `项目「${ep.project.name}」已归档，实验不可删除` 
+      }
+    }
+  }
+
+  return { canDelete: true }
+}

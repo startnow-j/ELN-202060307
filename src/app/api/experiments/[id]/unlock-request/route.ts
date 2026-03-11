@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
 import { getUserIdFromToken } from '@/lib/auth'
+import { canRequestUnlockByProjectStatus } from '@/lib/permissions'
 import { UnlockRequestStatus, ReviewStatus, ProjectMemberRole, ReviewAction } from '@prisma/client'
 
 // POST - 创建解锁申请
@@ -29,6 +30,9 @@ export async function POST(
           include: {
             project: {
               select: {
+                id: true,
+                name: true,
+                status: true,
                 ownerId: true
               }
             }
@@ -49,6 +53,12 @@ export async function POST(
     // 检查是否已锁定
     if (experiment.reviewStatus !== ReviewStatus.LOCKED) {
       return NextResponse.json({ error: '实验记录未锁定，无需申请解锁' }, { status: 400 })
+    }
+
+    // 检查项目状态是否允许申请解锁
+    const projectStatusCheck = await canRequestUnlockByProjectStatus(experimentId)
+    if (!projectStatusCheck.canRequest) {
+      return NextResponse.json({ error: projectStatusCheck.reason }, { status: 403 })
     }
 
     // 检查是否有待处理的解锁申请

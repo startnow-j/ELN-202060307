@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
 import { getUserIdFromToken } from '@/lib/auth'
 import { calculateCompletenessScore } from '@/lib/completenessScore'
+import { canSubmitReviewByProjectStatus } from '@/lib/permissions'
 import { ProjectMemberRole } from '@prisma/client'
 
 // 提交审核
@@ -78,6 +79,12 @@ export async function POST(
     // 检查状态
     if (experiment.reviewStatus !== 'DRAFT' && experiment.reviewStatus !== 'NEEDS_REVISION') {
       return NextResponse.json({ error: '当前状态不能提交审核' }, { status: 400 })
+    }
+
+    // 检查项目状态是否允许提交审核
+    const projectStatusCheck = await canSubmitReviewByProjectStatus(id)
+    if (!projectStatusCheck.canSubmit) {
+      return NextResponse.json({ error: projectStatusCheck.reason }, { status: 403 })
     }
 
     // 暂存实验不能提交审核

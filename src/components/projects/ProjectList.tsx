@@ -435,21 +435,15 @@ export function ProjectList({ onCreateProject, onViewProject }: ProjectListProps
                 rows={3}
               />
             </div>
+            {/* 状态变更已移至项目详情页，确保流程规范 */}
             <div className="space-y-2">
-              <Label htmlFor="edit-status">状态</Label>
-              <Select
-                value={editForm.status}
-                onValueChange={(value: Project['status']) => setEditForm(prev => ({ ...prev, status: value }))}
-              >
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="ACTIVE">进行中</SelectItem>
-                  <SelectItem value="COMPLETED">已完成</SelectItem>
-                  <SelectItem value="ARCHIVED">已归档</SelectItem>
-                </SelectContent>
-              </Select>
+              <Label>项目状态</Label>
+              <div className="flex items-center gap-2">
+                {getStatusBadge(editForm.status)}
+                <span className="text-xs text-muted-foreground">
+                  请在项目详情页进行状态操作
+                </span>
+              </div>
             </div>
           </div>
           <DialogFooter>

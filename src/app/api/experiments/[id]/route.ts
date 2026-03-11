@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
 import { getUserIdFromToken } from '@/lib/auth'
 import { AuditAction } from '@prisma/client'
-import { hasProjectPermission, isAdmin } from '@/lib/permissions'
+import { hasProjectPermission, isAdmin, canEditExperimentByProjectStatus, canDeleteExperimentByProjectStatus } from '@/lib/permissions'
 import {
   migrateExperimentToProject,
   createCrossProjectLink,
@@ -238,6 +238,12 @@ export async function PUT(
     // 检查是否可以编辑（只有DRAFT和NEEDS_REVISION状态可编辑）
     if (experiment.reviewStatus !== 'DRAFT' && experiment.reviewStatus !== 'NEEDS_REVISION') {
       return NextResponse.json({ error: '当前状态不允许编辑' }, { status: 403 })
+    }
+
+    // 检查项目状态是否允许编辑
+    const projectStatusCheck = await canEditExperimentByProjectStatus(id)
+    if (!projectStatusCheck.canEdit) {
+      return NextResponse.json({ error: projectStatusCheck.reason }, { status: 403 })
     }
 
     const adminCheck = await isAdmin(userId)
@@ -491,6 +497,12 @@ export async function DELETE(
     // 不能删除已锁定的记录
     if (experiment.reviewStatus === 'LOCKED') {
       return NextResponse.json({ error: '已锁定的实验记录不能删除，请申请解锁' }, { status: 403 })
+    }
+
+    // 检查项目状态是否允许删除
+    const projectStatusCheck = await canDeleteExperimentByProjectStatus(id)
+    if (!projectStatusCheck.canDelete) {
+      return NextResponse.json({ error: projectStatusCheck.reason }, { status: 403 })
     }
 
     // 删除关联的物理文件

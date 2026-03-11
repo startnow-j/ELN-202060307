@@ -18,7 +18,8 @@ export async function PUT(
 
     const { id } = await params
     const body = await request.json()
-    const { name, description, status, startDate, endDate, expectedEndDate, primaryLeader, memberIds } = body
+    // 注意：status 字段已移除，状态变更请使用 /api/projects/[id]/status 接口
+    const { name, description, startDate, endDate, expectedEndDate, primaryLeader, memberIds } = body
 
     // 检查权限
     const project = await db.project.findUnique({
@@ -26,13 +27,6 @@ export async function PUT(
       include: { 
         owner: true, 
         projectMembers: true,
-        experimentProjects: {
-          include: {
-            experiment: {
-              select: { id: true, reviewStatus: true }
-            }
-          }
-        }
       }
     })
 
@@ -51,74 +45,34 @@ export async function PUT(
       return NextResponse.json({ error: '无权限编辑此项目' }, { status: 403 })
     }
 
-    // 检测是否正在归档项目
-    const isArchiving = project.status !== 'ARCHIVED' && status === 'ARCHIVED'
-    
-    // 使用事务处理
-    const updated = await db.$transaction(async (tx) => {
-      // 如果是归档操作，锁定所有关联的实验记录
-      if (isArchiving) {
-        const experimentIds = project.experimentProjects
-          .filter(ep => ep.experiment.reviewStatus !== 'LOCKED')
-          .map(ep => ep.experiment.id)
-        
-        if (experimentIds.length > 0) {
-          await tx.experiment.updateMany({
-            where: { id: { in: experimentIds } },
-            data: { 
-              reviewStatus: 'LOCKED',
-              reviewedAt: new Date()
+    // 更新项目（状态变更已移至专用接口 /api/projects/[id]/status）
+    const updated = await db.project.update({
+      where: { id },
+      data: {
+        ...(name !== undefined && { name }),
+        ...(description !== undefined && { description }),
+        // 状态变更请使用专用接口: PUT /api/projects/[id]/status
+        ...(startDate !== undefined && { startDate: startDate ? new Date(startDate) : null }),
+        ...(endDate !== undefined && { endDate: endDate ? new Date(endDate) : null }),
+        ...(expectedEndDate !== undefined && { expectedEndDate: expectedEndDate ? new Date(expectedEndDate) : null }),
+        ...(primaryLeader !== undefined && { primaryLeader }),
+        ...(memberIds && { members: { set: memberIds.map((id: string) => ({ id })) } })
+      },
+      include: {
+        owner: {
+          select: { id: true, name: true, email: true, role: true, avatar: true }
+        },
+        members: {
+          select: { id: true, name: true, email: true, role: true, avatar: true }
+        },
+        projectMembers: {
+          include: {
+            user: {
+              select: { id: true, name: true, email: true, role: true, avatar: true }
             }
-          })
-          
-          // 记录审计日志
-          for (const expId of experimentIds) {
-            await tx.auditLog.create({
-              data: {
-                action: AuditAction.UPDATE,
-                entityType: 'Experiment',
-                entityId: expId,
-                userId,
-                details: JSON.stringify({ 
-                  reason: '项目归档自动锁定',
-                  projectId: id,
-                  projectName: project.name
-                })
-              }
-            })
           }
         }
       }
-      
-      // 更新项目
-      return await tx.project.update({
-        where: { id },
-        data: {
-          ...(name !== undefined && { name }),
-          ...(description !== undefined && { description }),
-          ...(status !== undefined && { status }),
-          ...(startDate !== undefined && { startDate: startDate ? new Date(startDate) : null }),
-          ...(endDate !== undefined && { endDate: endDate ? new Date(endDate) : null }),
-          ...(expectedEndDate !== undefined && { expectedEndDate: expectedEndDate ? new Date(expectedEndDate) : null }),
-          ...(primaryLeader !== undefined && { primaryLeader }),
-          ...(memberIds && { members: { set: memberIds.map((id: string) => ({ id })) } })
-        },
-        include: {
-          owner: {
-            select: { id: true, name: true, email: true, role: true, avatar: true }
-          },
-          members: {
-            select: { id: true, name: true, email: true, role: true, avatar: true }
-          },
-          projectMembers: {
-            include: {
-              user: {
-                select: { id: true, name: true, email: true, role: true, avatar: true }
-              }
-            }
-          }
-        }
-      })
     })
 
     // 审计日志
@@ -131,8 +85,7 @@ export async function PUT(
         details: JSON.stringify({ 
           name: updated.name, 
           changes: body,
-          archived: isArchiving,
-          lockedExperiments: isArchiving ? project.experimentProjects.length : 0
+          note: '状态变更请使用专用接口'
         })
       }
     })
@@ -157,10 +110,6 @@ export async function PUT(
         projectRole: pm.role
       })),
       createdAt: updated.createdAt.toISOString(),
-      // 返回归档操作的额外信息
-      _archivedInfo: isArchiving ? {
-        lockedExperiments: project.experimentProjects.length
-      } : undefined
     })
   } catch (error) {
     console.error('Update project error:', error)
