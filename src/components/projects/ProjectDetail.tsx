@@ -39,8 +39,10 @@ import {
 import {
   StatusAction,
   StatusActionInfo,
+  StatusActionFromAPI,
   ProjectMember,
   SelectableUser,
+  UserFromAPI,
   ProjectDocument,
   EditForm,
   UploadForm,
@@ -108,7 +110,7 @@ export function ProjectDetail({ project, experiments, onBack, onViewExperiment }
         const res = await fetch(`/api/projects/${project.id}/status`)
         if (res.ok) {
           const data = await res.json()
-          const actions: StatusActionInfo[] = data.availableActions.map((a: any) => {
+          const actions: StatusActionInfo[] = data.availableActions.map((a: StatusActionFromAPI) => {
             const iconMap: Record<string, React.ReactNode> = {
               complete: <CheckCircle className="w-4 h-4" />,
               reactivate: <Unlock className="w-4 h-4" />,
@@ -197,8 +199,8 @@ export function ProjectDetail({ project, experiments, onBack, onViewExperiment }
           const data = await res.json()
           const memberIds = members.map(m => m.id)
           const selectableUsers = data
-            .filter((u: any) => !memberIds.includes(u.id))
-            .map((u: any) => ({
+            .filter((u: UserFromAPI) => !memberIds.includes(u.id))
+            .map((u: UserFromAPI) => ({
               id: u.id,
               name: u.name,
               email: u.email,

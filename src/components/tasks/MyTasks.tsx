@@ -51,7 +51,9 @@ import {
   reviewStatusConfig,
   viewModeConfig,
   ViewMode,
-  UnlockRequestItem
+  UnlockRequestItem,
+  Experiment,
+  ProjectRelationForMember
 } from './'
 
 interface MyTasksProps {
@@ -67,7 +69,7 @@ export function MyTasks({ onViewExperiment, onEditExperiment }: MyTasksProps) {
   const [activeTab, setActiveTab] = useState('drafts')
   const [searchTerm, setSearchTerm] = useState('')
   const [isLoading, setIsLoading] = useState(true)
-  const [experiments, setExperiments] = useState<any[]>([])
+  const [experiments, setExperiments] = useState<Experiment[]>([])
   const [projects, setProjects] = useState<{ id: string; ownerId: string }[]>([])
   
   // 视角状态
@@ -75,17 +77,17 @@ export function MyTasks({ onViewExperiment, onEditExperiment }: MyTasksProps) {
 
   // 对话框状态
   const [reviewDialogOpen, setReviewDialogOpen] = useState(false)
-  const [reviewingExperiment, setReviewingExperiment] = useState<any | null>(null)
+  const [reviewingExperiment, setReviewingExperiment] = useState<Experiment | null>(null)
   
   const [unlockDialogOpen, setUnlockDialogOpen] = useState(false)
-  const [unlockingExperiment, setUnlockingExperiment] = useState<any | null>(null)
+  const [unlockingExperiment, setUnlockingExperiment] = useState<Experiment | null>(null)
   
   const [processUnlockDialogOpen, setProcessUnlockDialogOpen] = useState(false)
   const [processingUnlockRequest, setProcessingUnlockRequest] = useState<UnlockRequestItem | null>(null)
   const [processUnlockAction, setProcessUnlockAction] = useState<'APPROVE' | 'REJECT'>('APPROVE')
   
   const [feedbackDialogOpen, setFeedbackDialogOpen] = useState(false)
-  const [feedbackExperiment, setFeedbackExperiment] = useState<any | null>(null)
+  const [feedbackExperiment, setFeedbackExperiment] = useState<Experiment | null>(null)
 
   // 解锁申请Tab状态
   const [unlockRequests, setUnlockRequests] = useState<UnlockRequestItem[]>([])
@@ -168,11 +170,11 @@ export function MyTasks({ onViewExperiment, onEditExperiment }: MyTasksProps) {
     ? experiments.filter(e => e.reviewStatus === 'PENDING_REVIEW')
     : experiments.filter(e => {
         if (e.reviewStatus !== 'PENDING_REVIEW') return false
-        const pendingReviewRequests = e.reviewRequests?.filter((rr: any) => rr.status === 'PENDING') || []
+        const pendingReviewRequests = e.reviewRequests?.filter(rr => rr.status === 'PENDING') || []
         if (pendingReviewRequests.length > 0) {
-          return pendingReviewRequests.some((rr: any) => rr.reviewerId === currentUser?.id)
+          return pendingReviewRequests.some(rr => rr.reviewerId === currentUser?.id)
         } else {
-          return e.projects?.some((p: any) => p.ownerId === currentUser?.id)
+          return e.projects?.some(p => p.ownerId === currentUser?.id)
         }
       })
 
@@ -187,13 +189,13 @@ export function MyTasks({ onViewExperiment, onEditExperiment }: MyTasksProps) {
     : experiments.filter(e => e.reviewStatus === 'LOCKED' && e.authorId === currentUser?.id)
 
   // 打开审核对话框
-  const openReviewDialog = (experiment: any) => {
+  const openReviewDialog = (experiment: Experiment) => {
     setReviewingExperiment(experiment)
     setReviewDialogOpen(true)
   }
 
   // 打开解锁申请对话框
-  const openUnlockDialog = (experiment: any) => {
+  const openUnlockDialog = (experiment: Experiment) => {
     setUnlockingExperiment(experiment)
     setUnlockDialogOpen(true)
   }
@@ -206,7 +208,7 @@ export function MyTasks({ onViewExperiment, onEditExperiment }: MyTasksProps) {
   }
 
   // 打开反馈历史对话框
-  const openFeedbackDialog = (experiment: any) => {
+  const openFeedbackDialog = (experiment: Experiment) => {
     setFeedbackExperiment(experiment)
     setFeedbackDialogOpen(true)
   }
@@ -364,8 +366,8 @@ export function MyTasks({ onViewExperiment, onEditExperiment }: MyTasksProps) {
                           <div className="flex items-center gap-3 mb-2 flex-wrap">
                             <FlaskConical className="w-5 h-5 text-primary flex-shrink-0" />
                             <h3 className="font-semibold text-lg truncate">{experiment.title}</h3>
-                            <Badge className={(reviewStatusConfig as any)[experiment.reviewStatus].color}>
-                              {(reviewStatusConfig as any)[experiment.reviewStatus].label}
+                            <Badge className={reviewStatusConfig[experiment.reviewStatus].color}>
+                              {reviewStatusConfig[experiment.reviewStatus].label}
                             </Badge>
                           </div>
                           
@@ -382,7 +384,7 @@ export function MyTasks({ onViewExperiment, onEditExperiment }: MyTasksProps) {
                             {experiment.projects.length > 0 && (
                               <span className="flex items-center gap-1">
                                 <FolderOpen className="w-4 h-4" />
-                                {experiment.projects.map((p: any) => p.name).join(', ')}
+                                {experiment.projects.map((p: ProjectRelationForMember) => p.name).join(', ')}
                               </span>
                             )}
                           </div>
@@ -445,8 +447,8 @@ export function MyTasks({ onViewExperiment, onEditExperiment }: MyTasksProps) {
                           <div className="flex items-center gap-3 mb-2 flex-wrap">
                             <FlaskConical className="w-5 h-5 text-primary flex-shrink-0" />
                             <h3 className="font-semibold text-lg truncate">{experiment.title}</h3>
-                            <Badge className={(reviewStatusConfig as any)[experiment.reviewStatus].color}>
-                              {(reviewStatusConfig as any)[experiment.reviewStatus].label}
+                            <Badge className={reviewStatusConfig[experiment.reviewStatus].color}>
+                              {reviewStatusConfig[experiment.reviewStatus].label}
                             </Badge>
                           </div>
                           
@@ -517,10 +519,10 @@ export function MyTasks({ onViewExperiment, onEditExperiment }: MyTasksProps) {
                 .filter(e => e.title.toLowerCase().includes(searchTerm.toLowerCase()))
                 .map((experiment) => {
                   const hasRestrictedProject = experiment.projects?.some(
-                    (p: any) => p.status === 'COMPLETED' || p.status === 'ARCHIVED'
+                    (p: ProjectRelationForMember) => p.status === 'COMPLETED' || p.status === 'ARCHIVED'
                   )
                   const restrictedProject = experiment.projects?.find(
-                    (p: any) => p.status === 'COMPLETED' || p.status === 'ARCHIVED'
+                    (p: ProjectRelationForMember) => p.status === 'COMPLETED' || p.status === 'ARCHIVED'
                   )
                   
                   return (
@@ -546,8 +548,8 @@ export function MyTasks({ onViewExperiment, onEditExperiment }: MyTasksProps) {
                             <div className="flex items-center gap-3 mb-2 flex-wrap">
                               <FlaskConical className="w-5 h-5 text-primary flex-shrink-0" />
                               <h3 className="font-semibold text-lg truncate">{experiment.title}</h3>
-                              <Badge className={(reviewStatusConfig as any)[experiment.reviewStatus].color}>
-                                {(reviewStatusConfig as any)[experiment.reviewStatus].label}
+                              <Badge className={reviewStatusConfig[experiment.reviewStatus].color}>
+                                {reviewStatusConfig[experiment.reviewStatus].label}
                               </Badge>
                             </div>
                             
@@ -566,7 +568,7 @@ export function MyTasks({ onViewExperiment, onEditExperiment }: MyTasksProps) {
                               {experiment.projects.length > 0 && (
                                 <span className="flex items-center gap-1">
                                   <FolderOpen className="w-4 h-4" />
-                                  {experiment.projects.map((p: any) => p.name).join(', ')}
+                                  {experiment.projects.map((p: ProjectRelationForMember) => p.name).join(', ')}
                                 </span>
                               )}
                             </div>

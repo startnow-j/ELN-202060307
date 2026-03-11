@@ -1,5 +1,6 @@
-import { Experiment, ReviewStatus, ReviewFeedback, AppUser } from '@/contexts/AppContext'
+import { Experiment, ReviewStatus, ReviewFeedback, AppUser, ReviewRequest, ProjectRelationForMember } from '@/contexts/AppContext'
 import { FileEdit, AlertCircle, RefreshCw, Lock } from 'lucide-react'
+import React from 'react'
 
 // 审核人类型
 export interface Reviewer {
@@ -28,7 +29,7 @@ export interface UnlockRequestItem {
 export type ViewMode = 'default' | 'global'
 
 // 审核状态配置
-export const reviewStatusConfig: Record<ReviewStatus, { label: string; color: string; icon: React.ReactNode }> = {
+export const reviewStatusConfig: Record<string, { label: string; color: string; icon: React.ReactNode }> = {
   DRAFT: {
     label: '草稿',
     color: 'bg-gray-100 text-gray-700',
@@ -75,4 +76,4 @@ export const getScoreColor = (score: number) => {
 }
 
 // 重新导出需要的类型
-export type { Experiment, ReviewStatus, ReviewFeedback, AppUser }
+export type { Experiment, ReviewStatus, ReviewFeedback, AppUser, ReviewRequest, ProjectRelationForMember }

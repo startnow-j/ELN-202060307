@@ -203,6 +203,24 @@ export interface Attachment {
   createdAt: string
 }
 
+// 审核请求类型
+export interface ReviewRequest {
+  id: string
+  status: 'PENDING' | 'COMPLETED' | 'CANCELLED'
+  note: string | null
+  createdAt: string
+  reviewerId: string
+  reviewer: AppUser
+}
+
+// 项目成员关系类型（用于实验列表中的项目关联）
+export interface ProjectRelationForMember {
+  id: string
+  name: string
+  status: 'ACTIVE' | 'COMPLETED' | 'ARCHIVED'
+  ownerId: string
+}
+
 // 实验记录类型（v3.0 新版）
 export interface Experiment {
   id: string
@@ -217,7 +235,7 @@ export interface Experiment {
   tags: string | null
   authorId: string
   author: AppUser
-  projects: Project[]
+  projects: ProjectRelationForMember[]
   attachments: Attachment[]
   reviewFeedbacks?: ReviewFeedback[]
   reviewRequests?: ReviewRequest[]

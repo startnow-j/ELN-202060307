@@ -24,6 +24,7 @@ import {
   Download
 } from 'lucide-react'
 import { FilePreviewDialog } from './FilePreviewDialog'
+import { PreviewData } from '@/contexts/AppContext'
 
 interface Attachment {
   id: string
@@ -32,7 +33,7 @@ interface Attachment {
   size: number
   path: string
   category: string
-  previewData: any
+  previewData: PreviewData
   createdAt: string
 }
 

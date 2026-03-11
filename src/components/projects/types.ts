@@ -9,6 +9,13 @@ export interface StatusActionInfo {
   icon: React.ReactNode
 }
 
+// API 返回的状态操作
+export interface StatusActionFromAPI {
+  action: StatusAction
+  label: string
+  description: string
+}
+
 // 项目成员类型
 export interface ProjectMember {
   id: string
@@ -18,6 +25,14 @@ export interface ProjectMember {
   avatar: string | null
   projectRole: string
   joinedAt: string | null
+}
+
+// API 返回的用户类型
+export interface UserFromAPI {
+  id: string
+  name: string
+  email: string
+  role: string
 }
 
 // 可选用户类型

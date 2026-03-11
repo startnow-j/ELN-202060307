@@ -232,7 +232,7 @@ export function ExperimentDetail({ experiment: initialExperiment, onEdit, onBack
   }
 
   // 更新提取信息
-  const handleUpdateExtractedInfo = async (info: any) => {
+  const handleUpdateExtractedInfo = async (info: ExtractedInfo) => {
     return await updateExtractedInfo(experiment.id, info)
   }
 
