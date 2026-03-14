@@ -2162,3 +2162,72 @@ export const authKeys = {
 - ✅ 设计草案文档已创建
 - ✅ 待确认事项已确定（5项）
 - ⏳ 待后续开发
+
+---
+## Task ID: 25 - AI提取功能与AI配置模块关联
+
+**日期**: 2025-03-06
+
+**背景**: 发现AI智能提取功能直接使用SDK默认配置，未与AI配置模块关联，导致超级管理员配置的参数无效
+
+### 问题分析
+
+#### 原实现
+```typescript
+// extract/route.ts
+const zai = await ZAI.create()  // 直接创建，使用SDK默认配置
+const completion = await zai.chat.completions.create({...})
+```
+
+#### 问题
+- AI配置模块的数据存储在数据库中，但未被使用
+- `secureAICall` 安全封装函数已实现但未被调用
+- 超级管理员配置的API密钥、模型等参数无效
+
+### Work Log:
+
+#### 1. 修改 extract/route.ts
+- 移除 `import ZAI from 'z-ai-web-dev-sdk'`
+- 添加 `import { secureAICall } from '@/lib/ai-security'`
+- 获取激活的AI配置：`db.aIConfig.findFirst({ where: { isActive: true } })`
+- 使用 secureAICall 调用AI，传入配置参数
+
+#### 2. 关键改动
+```typescript
+// 获取激活的AI配置
+const activeConfig = await db.aIConfig.findFirst({
+  where: { isActive: true }
+})
+
+// 使用安全封装调用（关联AI配置模块）
+const result = await secureAICall({
+  userId,
+  provider: activeConfig.provider,
+  messages: [...],
+  options: {
+    model: activeConfig.modelName,
+    maxTokens: 4000,
+    temperature: 0.3,
+    sanitizeInput: true
+  }
+})
+```
+
+#### 3. 功能增强
+- 自动读取数据库中激活的AI配置
+- 支持敏感信息脱敏
+- 调用限流检查
+- 审计日志记录
+- 更友好的错误提示
+
+### 文件变更:
+| 文件 | 变更类型 | 说明 |
+|------|---------|------|
+| src/app/api/experiments/[id]/extract/route.ts | 重构 | 使用secureAICall替代直接SDK调用 |
+
+### Stage Summary:
+- ✅ AI提取功能已与AI配置模块关联
+- ✅ 超级管理员配置生效
+- ✅ 增加安全措施（脱敏、限流、审计）
+- ✅ Lint检查通过
+- ✅ 应用运行正常
