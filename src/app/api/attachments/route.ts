@@ -1,0 +1,495 @@
+import { NextRequest, NextResponse } from 'next/server'
+import { db } from '@/lib/db'
+import { getUserIdFromToken } from '@/lib/auth'
+import { AttachmentCategory } from '@prisma/client'
+import fs from 'fs'
+import path from 'path'
+import { exec } from 'child_process'
+import { promisify } from 'util'
+import mammoth from 'mammoth'
+import * as xlsx from 'xlsx'
+import { 
+  generateDraftFilePath, 
+  generateProjectFilePath
+} from '@/lib/file-path'
+
+const execAsync = promisify(exec)
+
+// 支持的文件类型
+const ALLOWED_TYPES: Record<string, { category: AttachmentCategory; extensions: string[] }> = {
+  DOCUMENT: { category: 'DOCUMENT', extensions: ['.doc', '.docx', '.pdf', '.txt', '.md', '.tex'] },
+  DATA_FILE: { category: 'DATA_FILE', extensions: ['.xls', '.xlsx', '.csv'] },
+  IMAGE: { category: 'IMAGE', extensions: ['.png', '.jpg', '.jpeg', '.gif', '.bmp'] },
+}
+
+// 预览数据结构类型
+interface WordPreview {
+  type: 'word'
+  pages: number
+  paragraphs: number
+  chars: number
+  summary: string
+}
+
+interface PDFPreview {
+  type: 'pdf'
+  pages: number
+  chars: number
+  summary: string
+}
+
+interface ExcelSheetPreview {
+  name: string
+  rows: number
+  cols: number
+  headers: string[]
+  sampleData: string[][]
+}
+
+interface ExcelPreview {
+  type: 'excel'
+  sheets: ExcelSheetPreview[]
+  totalSheets: number
+}
+
+interface MarkdownPreview {
+  type: 'markdown'
+  chars: number
+  summary: string
+}
+
+type PreviewData = WordPreview | PDFPreview | ExcelPreview | MarkdownPreview | null
+
+// 获取文件分类
+function getFileCategory(filename: string): AttachmentCategory {
+  const ext = path.extname(filename).toLowerCase()
+  for (const [, config] of Object.entries(ALLOWED_TYPES)) {
+    if (config.extensions.includes(ext)) {
+      return config.category as AttachmentCategory
+    }
+  }
+  return 'OTHER'
+}
+
+// ========== 轻量级提取函数 ==========
+
+// Word文档摘要提取 (.docx)
+async function extractWordSummary(buffer: Buffer): Promise<WordPreview> {
+  try {
+    console.log('[Word .docx] Extracting summary...')
+    const result = await mammoth.extractRawText({ buffer })
+    const text = result.value || ''
+    
+    const paragraphs = text.split(/\n\s*\n/).filter(p => p.trim()).length
+    const chars = text.length
+    const pages = Math.max(1, Math.ceil(chars / 2000))
+    const summary = text.slice(0, 500).trim()
+    
+    console.log(`[Word .docx] Success, chars: ${chars}`)
+    return {
+      type: 'word',
+      pages,
+      paragraphs,
+      chars,
+      summary
+    }
+  } catch (error) {
+    console.error('[Word .docx] Extraction error:', error)
+    return {
+      type: 'word',
+      pages: 0,
+      paragraphs: 0,
+      chars: 0,
+      summary: ''
+    }
+  }
+}
+
+// .doc 文档摘要提取 (使用 antiword)
+async function extractDocSummary(filePath: string): Promise<WordPreview> {
+  try {
+    console.log('[Word .doc] Extracting summary with antiword...')
+    
+    const { stdout, stderr } = await execAsync(`antiword "${filePath}"`, {
+      maxBuffer: 10 * 1024 * 1024
+    })
+
+    if (stderr && !stdout) {
+      throw new Error(stderr)
+    }
+
+    const text = stdout || ''
+    const paragraphs = text.split(/\n\s*\n/).filter(p => p.trim()).length
+    const chars = text.length
+    const pages = Math.max(1, Math.ceil(chars / 2000))
+    const summary = text.slice(0, 500).trim()
+    
+    console.log(`[Word .doc] Success, chars: ${chars}`)
+    return {
+      type: 'word',
+      pages,
+      paragraphs,
+      chars,
+      summary
+    }
+  } catch (error) {
+    console.error('[Word .doc] Extraction error:', error)
+    return {
+      type: 'word',
+      pages: 0,
+      paragraphs: 0,
+      chars: 0,
+      summary: ''
+    }
+  }
+}
+
+// PDF摘要提取 - 使用新的 fileParser
+async function extractPDFSummary(buffer: Buffer): Promise<PDFPreview> {
+  try {
+    console.log('[PDF Attachments] Starting PDF extraction...')
+    
+    // 使用 pdf2json 提取
+    const PDFParser = (await import('pdf2json')).default || (await import('pdf2json'))
+    
+    return new Promise((resolve) => {
+      const pdfParser = new (PDFParser as any)(null, 1)
+      let allText = ''
+      let pageCount = 1
+      
+      // 设置错误处理器
+      pdfParser.on('pdfParser_dataError', () => {
+        console.log('[PDF Attachments] Parser error, returning empty result')
+        resolve({
+          type: 'pdf',
+          pages: 1,
+          chars: 0,
+          summary: ''
+        })
+      })
+      
+      pdfParser.on('pdfParser_dataReady', (pdfData: any) => {
+        try {
+          pageCount = pdfData.Pages?.length || 1
+          for (const page of pdfData.Pages || []) {
+            for (const textItem of page.Texts || []) {
+              try {
+                const rawText = textItem.R?.[0]?.T || ''
+                // 安全解码，处理可能的 malformed URI 错误
+                if (rawText) {
+                  try {
+                    const decodedText = decodeURIComponent(rawText)
+                    allText += decodedText + ' '
+                  } catch {
+                    // 解码失败，尝试直接使用原始文本
+                    allText += rawText + ' '
+                  }
+                }
+              } catch {
+                // 跳过这个文本项
+              }
+            }
+            allText += '\n'
+          }
+
+          const chars = allText.length
+          const summary = allText.slice(0, 500).trim()
+
+          console.log(`[PDF Attachments] Success, pages: ${pageCount}, chars: ${chars}`)
+          resolve({
+            type: 'pdf',
+            pages: pageCount,
+            chars,
+            summary
+          })
+        } catch (error) {
+          console.error('[PDF Attachments] Error in dataReady callback:', error)
+          resolve({
+            type: 'pdf',
+            pages: 1,
+            chars: 0,
+            summary: ''
+          })
+        }
+      })
+      
+      pdfParser.parseBuffer(buffer)
+    })
+  } catch (error) {
+    console.error('PDF extraction error:', error)
+    return {
+      type: 'pdf',
+      pages: 1,
+      chars: 0,
+      summary: ''
+    }
+  }
+}
+
+// Excel摘要提取
+async function extractExcelSummary(buffer: Buffer): Promise<ExcelPreview> {
+  try {
+    const workbook = xlsx.read(buffer, { type: 'buffer' })
+    
+    const sheets: ExcelSheetPreview[] = []
+    
+    for (const sheetName of workbook.SheetNames) {
+      const sheet = workbook.Sheets[sheetName]
+      const range = xlsx.utils.decode_range(sheet['!ref'] || 'A1')
+      const rows = range.e.r - range.s.r + 1
+      const cols = range.e.c - range.s.c + 1
+      
+      const headers: string[] = []
+      for (let c = range.s.c; c <= range.e.c; c++) {
+        const cell = sheet[xlsx.utils.encode_cell({ r: range.s.r, c })]
+        headers.push(cell?.v?.toString() || `列${c + 1}`)
+      }
+      
+      const sampleData: string[][] = []
+      for (let r = range.s.r + 1; r <= Math.min(range.s.r + 5, range.e.r); r++) {
+        const row: string[] = []
+        for (let c = range.s.c; c <= range.e.c; c++) {
+          const cell = sheet[xlsx.utils.encode_cell({ r, c })]
+          row.push(cell?.v?.toString() || '')
+        }
+        sampleData.push(row)
+      }
+      
+      sheets.push({
+        name: sheetName,
+        rows,
+        cols,
+        headers,
+        sampleData
+      })
+    }
+    
+    return {
+      type: 'excel',
+      sheets,
+      totalSheets: workbook.SheetNames.length
+    }
+  } catch (error) {
+    console.error('Excel extraction error:', error)
+    return {
+      type: 'excel',
+      sheets: [],
+      totalSheets: 0
+    }
+  }
+}
+
+// Markdown摘要提取
+async function extractMarkdownSummary(buffer: Buffer): Promise<{ type: 'markdown'; chars: number; summary: string }> {
+  const text = buffer.toString('utf-8')
+  return {
+    type: 'markdown',
+    chars: text.length,
+    summary: text.slice(0, 500).trim()
+  }
+}
+
+// 主提取函数 - 支持传入文件路径用于 .doc 文件
+async function extractPreviewData(filename: string, buffer: Buffer, filePath?: string): Promise<PreviewData> {
+  const ext = path.extname(filename).toLowerCase()
+  
+  if (ext === '.docx') {
+    return await extractWordSummary(buffer)
+  } else if (ext === '.doc') {
+    // .doc 文件需要文件路径，使用 antiword
+    if (filePath) {
+      return await extractDocSummary(filePath)
+    }
+    return null
+  } else if (ext === '.pdf') {
+    return await extractPDFSummary(buffer)
+  } else if (ext === '.xlsx' || ext === '.xls') {
+    return await extractExcelSummary(buffer)
+  } else if (ext === '.md' || ext === '.tex' || ext === '.txt') {
+    return await extractMarkdownSummary(buffer)
+  }
+  
+  return null
+}
+
+// ========== API路由 ==========
+
+// 上传附件
+export async function POST(request: NextRequest) {
+  try {
+    const userId = await getUserIdFromToken(request)
+    if (!userId) {
+      return NextResponse.json({ error: '未登录' }, { status: 401 })
+    }
+
+    const formData = await request.formData()
+    const file = formData.get('file') as File
+    const experimentId = formData.get('experimentId') as string
+    const reviewFeedbackId = formData.get('reviewFeedbackId') as string | null
+
+    if (!file || !experimentId) {
+      return NextResponse.json({ error: '缺少文件或实验ID' }, { status: 400 })
+    }
+
+    // 检查文件大小（最大 50MB）
+    if (file.size > 50 * 1024 * 1024) {
+      return NextResponse.json({ error: '文件大小不能超过50MB' }, { status: 400 })
+    }
+
+    // 检查实验是否存在
+    const experiment = await db.experiment.findUnique({
+      where: { id: experimentId },
+      include: {
+        experimentProjects: {
+          include: { project: true }
+        }
+      }
+    })
+
+    if (!experiment) {
+      return NextResponse.json({ error: '实验记录不存在' }, { status: 404 })
+    }
+
+    // 检查权限
+    const user = await db.user.findUnique({ where: { id: userId } })
+    const isAdmin = user?.role === 'ADMIN' || user?.role === 'SUPER_ADMIN'
+    const isAuthor = experiment.authorId === userId
+
+    // 检查是否是该实验的审核人（有 PENDING 状态的 ReviewRequest）
+    const pendingReviewRequest = await db.reviewRequest.findFirst({
+      where: {
+        experimentId,
+        reviewerId: userId,
+        status: 'PENDING'
+      }
+    })
+    const isReviewer = !!pendingReviewRequest
+
+    // 如果指定了 reviewFeedbackId，验证其存在性和权限
+    if (reviewFeedbackId) {
+      const reviewFeedback = await db.reviewFeedback.findUnique({
+        where: { id: reviewFeedbackId }
+      })
+      if (!reviewFeedback) {
+        return NextResponse.json({ error: '审核反馈不存在' }, { status: 404 })
+      }
+      if (reviewFeedback.experimentId !== experimentId) {
+        return NextResponse.json({ error: '审核反馈与实验不匹配' }, { status: 400 })
+      }
+      if (reviewFeedback.reviewerId !== userId && !isAdmin) {
+        return NextResponse.json({ error: '无权限上传批注附件' }, { status: 403 })
+      }
+    } else {
+      // 没有 reviewFeedbackId 时，检查上传权限
+      // 1. 作者可以上传普通附件（实验未锁定时）
+      // 2. 审核人可以上传批注附件（用于审核操作）
+      // 3. 管理员可以上传任何附件
+
+      if (isAuthor && experiment.reviewStatus === 'LOCKED') {
+        return NextResponse.json({ error: '已锁定的实验记录不能上传附件' }, { status: 403 })
+      }
+
+      if (!isAuthor && !isReviewer && !isAdmin) {
+        return NextResponse.json({ error: '无权限上传附件' }, { status: 403 })
+      }
+    }
+
+    // 准备文件数据
+    const bytes = await file.arrayBuffer()
+    const buffer = Buffer.from(bytes)
+
+    // 确定存储位置和生成文件路径
+    let filePathResult: { fullPath: string; relativePath: string; directory: string }
+
+    if (experiment.storageLocation === 'draft' || !experiment.storageLocation) {
+      // 暂存区
+      filePathResult = generateDraftFilePath(userId, experiment.title, file.name)
+    } else {
+      // 项目区
+      const primaryProject = experiment.experimentProjects.find(
+        ep => ep.projectId === experiment.primaryProjectId
+      )?.project || experiment.experimentProjects[0]?.project
+      
+      if (primaryProject) {
+        filePathResult = generateProjectFilePath(primaryProject.name, experiment.title, file.name)
+      } else {
+        // 没有项目关联，存到暂存区
+        filePathResult = generateDraftFilePath(userId, experiment.title, file.name)
+      }
+    }
+
+    // 保存文件
+    fs.writeFileSync(filePathResult.fullPath, buffer)
+
+    // 提取轻量级预览数据（传入文件路径以支持 .doc 文件）
+    const previewData = await extractPreviewData(file.name, buffer, filePathResult.fullPath)
+    
+    // 创建附件记录
+    const attachment = await db.attachment.create({
+      data: {
+        name: file.name,
+        type: file.type || 'application/octet-stream',
+        size: file.size,
+        path: filePathResult.relativePath,
+        category: getFileCategory(file.name),
+        extractedText: previewData ? JSON.stringify(previewData) : null,
+        experimentId,
+        uploaderId: userId,
+        reviewFeedbackId: reviewFeedbackId || null
+      }
+    })
+
+    return NextResponse.json({
+      id: attachment.id,
+      name: attachment.name,
+      type: attachment.type,
+      size: attachment.size,
+      path: attachment.path,
+      category: attachment.category,
+      previewData: previewData,
+      createdAt: attachment.createdAt.toISOString(),
+      reviewFeedbackId: attachment.reviewFeedbackId
+    })
+
+  } catch (error) {
+    console.error('Upload attachment error:', error)
+    return NextResponse.json({ error: '上传失败' }, { status: 500 })
+  }
+}
+
+// 获取附件列表
+export async function GET(request: NextRequest) {
+  try {
+    const userId = await getUserIdFromToken(request)
+    if (!userId) {
+      return NextResponse.json({ error: '未登录' }, { status: 401 })
+    }
+
+    const { searchParams } = new URL(request.url)
+    const experimentId = searchParams.get('experimentId')
+
+    if (!experimentId) {
+      return NextResponse.json({ error: '缺少实验ID' }, { status: 400 })
+    }
+
+    const attachments = await db.attachment.findMany({
+      where: { experimentId },
+      orderBy: { createdAt: 'desc' }
+    })
+
+    return NextResponse.json(attachments.map(att => ({
+      id: att.id,
+      name: att.name,
+      type: att.type,
+      size: att.size,
+      path: att.path,
+      category: att.category,
+      previewData: att.extractedText ? JSON.parse(att.extractedText) : null,
+      createdAt: att.createdAt.toISOString()
+    })))
+
+  } catch (error) {
+    console.error('Get attachments error:', error)
+    return NextResponse.json({ error: '获取附件列表失败' }, { status: 500 })
+  }
+}
