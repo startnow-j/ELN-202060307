@@ -7,6 +7,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Switch } from '@/components/ui/switch'
 import { Badge } from '@/components/ui/badge'
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import {
   Dialog,
   DialogContent,
@@ -50,7 +51,14 @@ import {
   AlertTriangle,
   Eye,
   EyeOff,
-  Sparkles
+  Sparkles,
+  BarChart3,
+  TrendingUp,
+  Clock,
+  Zap,
+  Users,
+  Calendar,
+  AlertCircle
 } from 'lucide-react'
 
 // AI服务提供商配置
@@ -115,6 +123,62 @@ interface ConfigFormData {
   isActive: boolean
 }
 
+// AI统计相关类型
+interface AIStatsSummary {
+  totalCalls: number
+  successCalls: number
+  failedCalls: number
+  timeoutCalls: number
+  successRate: number
+  totalTokens: number
+  totalPromptTokens: number
+  totalCompletionTokens: number
+  avgResponseTime: number
+}
+
+interface ProviderStat {
+  calls: number
+  success: number
+  failed: number
+  tokens: number
+  avgResponseTime: number
+}
+
+interface DailyStat {
+  date: string
+  calls: number
+  tokens: number
+  success: number
+}
+
+interface TopUser {
+  user: { id: string; name: string; email: string }
+  calls: number
+  tokens: number
+}
+
+interface RecentLog {
+  id: string
+  provider: string
+  model: string
+  promptTokens: number
+  completionTokens: number
+  totalTokens: number
+  responseTime: number
+  status: 'success' | 'failed' | 'timeout'
+  errorMessage?: string
+  userId: string | null
+  createdAt: string
+}
+
+interface AIStats {
+  summary: AIStatsSummary
+  providerStats: Record<string, ProviderStat>
+  dailyStats: DailyStat[]
+  topUsers: TopUser[]
+  recentLogs: RecentLog[]
+}
+
 const defaultFormData: ConfigFormData = {
   provider: '',
   apiKey: '',
@@ -132,6 +196,11 @@ export function AIConfigManager() {
   const [showApiKey, setShowApiKey] = useState(false)
   const [isSaving, setIsSaving] = useState(false)
   const [deletingId, setDeletingId] = useState<string | null>(null)
+
+  // 统计相关状态
+  const [statsDays, setStatsDays] = useState(7)
+  const [stats, setStats] = useState<AIStats | null>(null)
+  const [isLoadingStats, setIsLoadingStats] = useState(false)
 
   const { toast } = useToast()
 
@@ -162,9 +231,35 @@ export function AIConfigManager() {
     }
   }
 
+  // 加载统计
+  const loadStats = async () => {
+    try {
+      setIsLoadingStats(true)
+      const res = await authFetch(`/api/ai-config/stats?days=${statsDays}`)
+      if (res.ok) {
+        const data = await res.json()
+        setStats(data)
+      } else {
+        toast({
+          variant: 'destructive',
+          title: '加载统计失败',
+          description: '无法获取AI调用统计'
+        })
+      }
+    } catch (error) {
+      console.error('Load stats error:', error)
+    } finally {
+      setIsLoadingStats(false)
+    }
+  }
+
   useEffect(() => {
     loadConfigs()
   }, [])
+
+  useEffect(() => {
+    loadStats()
+  }, [statsDays])
 
   // 获取provider配置
   const getProviderConfig = (providerId: string) => {
@@ -319,6 +414,19 @@ export function AIConfigManager() {
     }
   }
 
+  // 格式化数字
+  const formatNumber = (num: number) => {
+    if (num >= 1000000) return (num / 1000000).toFixed(1) + 'M'
+    if (num >= 1000) return (num / 1000).toFixed(1) + 'K'
+    return num.toString()
+  }
+
+  // 格式化时间
+  const formatDuration = (ms: number) => {
+    if (ms >= 1000) return (ms / 1000).toFixed(1) + 's'
+    return ms + 'ms'
+  }
+
   // 渲染空状态
   if (isLoading) {
     return (
@@ -343,117 +451,356 @@ export function AIConfigManager() {
             配置AI大模型服务商，用于实验数据分析等智能功能
           </p>
         </div>
-        <Button onClick={() => openDialog()}>
-          <Plus className="w-4 h-4 mr-2" />
-          添加配置
-        </Button>
       </div>
 
-      {/* 安全提示 */}
-      <Card className="border-amber-200 bg-amber-50 dark:border-amber-900 dark:bg-amber-950">
-        <CardContent className="flex items-start gap-3 py-4">
-          <AlertTriangle className="w-5 h-5 text-amber-600 dark:text-amber-500 flex-shrink-0 mt-0.5" />
-          <div className="text-sm">
-            <p className="font-medium text-amber-800 dark:text-amber-200">安全提示</p>
-            <p className="text-amber-700 dark:text-amber-300 mt-1">
-              API密钥将被加密存储，仅系统可解密使用。请妥善保管主密钥，不要泄露给他人。
-            </p>
-          </div>
-        </CardContent>
-      </Card>
+      {/* Tab 切换 */}
+      <Tabs defaultValue="config" className="w-full">
+        <TabsList>
+          <TabsTrigger value="config" className="gap-2">
+            <Key className="w-4 h-4" />
+            服务配置
+          </TabsTrigger>
+          <TabsTrigger value="stats" className="gap-2">
+            <BarChart3 className="w-4 h-4" />
+            调用统计
+          </TabsTrigger>
+        </TabsList>
 
-      {/* 配置列表 */}
-      {configs.length === 0 ? (
-        <Card>
-          <CardContent className="flex flex-col items-center justify-center py-12">
-            <Sparkles className="w-12 h-12 text-muted-foreground mb-4" />
-            <p className="text-muted-foreground">暂无AI服务配置</p>
-            <p className="text-sm text-muted-foreground mt-1">
-              点击"添加配置"按钮开始配置AI服务
-            </p>
-          </CardContent>
-        </Card>
-      ) : (
-        <div className="grid gap-4">
-          {configs.map(config => {
-            const provider = getProviderConfig(config.provider)
-            return (
-              <Card key={config.id}>
-                <CardContent className="flex items-center justify-between py-4">
-                  <div className="flex items-center gap-4">
-                    <div className="text-3xl">{provider?.icon || '🤖'}</div>
-                    <div>
-                      <div className="flex items-center gap-2">
-                        <span className="font-medium">{provider?.name || config.provider}</span>
-                        {config.isActive ? (
-                          <Badge variant="default" className="bg-green-600">
-                            <CheckCircle className="w-3 h-3 mr-1" />
-                            已启用
-                          </Badge>
-                        ) : (
-                          <Badge variant="secondary">
-                            <XCircle className="w-3 h-3 mr-1" />
-                            已停用
-                          </Badge>
-                        )}
-                      </div>
-                      <div className="text-sm text-muted-foreground mt-1">
-                        模型: {config.modelName}
-                        {config.apiEndpoint && (
-                          <span className="ml-2 text-xs">
-                            • {config.apiEndpoint}
-                          </span>
-                        )}
-                      </div>
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <Switch
-                      checked={config.isActive}
-                      onCheckedChange={() => toggleActive(config)}
-                    />
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => openDialog(config)}
-                    >
-                      <Pencil className="w-4 h-4" />
-                    </Button>
-                    <AlertDialog>
-                      <AlertDialogTrigger asChild>
-                        <Button variant="outline" size="sm">
-                          <Trash2 className="w-4 h-4 text-destructive" />
-                        </Button>
-                      </AlertDialogTrigger>
-                      <AlertDialogContent>
-                        <AlertDialogHeader>
-                          <AlertDialogTitle>确认删除</AlertDialogTitle>
-                          <AlertDialogDescription>
-                            确定要删除 {provider?.name} 的配置吗？此操作不可撤销。
-                          </AlertDialogDescription>
-                        </AlertDialogHeader>
-                        <AlertDialogFooter>
-                          <AlertDialogCancel>取消</AlertDialogCancel>
-                          <AlertDialogAction
-                            onClick={() => handleDelete(config.id)}
-                            className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-                          >
-                            {deletingId === config.id ? (
-                              <Loader2 className="w-4 h-4 animate-spin" />
+        {/* 配置 Tab */}
+        <TabsContent value="config" className="space-y-6 mt-6">
+          {/* 安全提示 */}
+          <Card className="border-amber-200 bg-amber-50 dark:border-amber-900 dark:bg-amber-950">
+            <CardContent className="flex items-start gap-3 py-4">
+              <AlertTriangle className="w-5 h-5 text-amber-600 dark:text-amber-500 flex-shrink-0 mt-0.5" />
+              <div className="text-sm">
+                <p className="font-medium text-amber-800 dark:text-amber-200">安全提示</p>
+                <p className="text-amber-700 dark:text-amber-300 mt-1">
+                  API密钥将被加密存储，仅系统可解密使用。请妥善保管主密钥，不要泄露给他人。
+                </p>
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* 添加按钮 */}
+          <div className="flex justify-end">
+            <Button onClick={() => openDialog()}>
+              <Plus className="w-4 h-4 mr-2" />
+              添加配置
+            </Button>
+          </div>
+
+          {/* 配置列表 */}
+          {configs.length === 0 ? (
+            <Card>
+              <CardContent className="flex flex-col items-center justify-center py-12">
+                <Sparkles className="w-12 h-12 text-muted-foreground mb-4" />
+                <p className="text-muted-foreground">暂无AI服务配置</p>
+                <p className="text-sm text-muted-foreground mt-1">
+                  点击"添加配置"按钮开始配置AI服务
+                </p>
+              </CardContent>
+            </Card>
+          ) : (
+            <div className="grid gap-4">
+              {configs.map(config => {
+                const provider = getProviderConfig(config.provider)
+                return (
+                  <Card key={config.id}>
+                    <CardContent className="flex items-center justify-between py-4">
+                      <div className="flex items-center gap-4">
+                        <div className="text-3xl">{provider?.icon || '🤖'}</div>
+                        <div>
+                          <div className="flex items-center gap-2">
+                            <span className="font-medium">{provider?.name || config.provider}</span>
+                            {config.isActive ? (
+                              <Badge variant="default" className="bg-green-600">
+                                <CheckCircle className="w-3 h-3 mr-1" />
+                                已启用
+                              </Badge>
                             ) : (
-                              '删除'
+                              <Badge variant="secondary">
+                                <XCircle className="w-3 h-3 mr-1" />
+                                已停用
+                              </Badge>
                             )}
-                          </AlertDialogAction>
-                        </AlertDialogFooter>
-                      </AlertDialogContent>
-                    </AlertDialog>
-                  </div>
+                          </div>
+                          <div className="text-sm text-muted-foreground mt-1">
+                            模型: {config.modelName}
+                            {config.apiEndpoint && (
+                              <span className="ml-2 text-xs">
+                                • {config.apiEndpoint}
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <Switch
+                          checked={config.isActive}
+                          onCheckedChange={() => toggleActive(config)}
+                        />
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => openDialog(config)}
+                        >
+                          <Pencil className="w-4 h-4" />
+                        </Button>
+                        <AlertDialog>
+                          <AlertDialogTrigger asChild>
+                            <Button variant="outline" size="sm">
+                              <Trash2 className="w-4 h-4 text-destructive" />
+                            </Button>
+                          </AlertDialogTrigger>
+                          <AlertDialogContent>
+                            <AlertDialogHeader>
+                              <AlertDialogTitle>确认删除</AlertDialogTitle>
+                              <AlertDialogDescription>
+                                确定要删除 {provider?.name} 的配置吗？此操作不可撤销。
+                              </AlertDialogDescription>
+                            </AlertDialogHeader>
+                            <AlertDialogFooter>
+                              <AlertDialogCancel>取消</AlertDialogCancel>
+                              <AlertDialogAction
+                                onClick={() => handleDelete(config.id)}
+                                className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                              >
+                                {deletingId === config.id ? (
+                                  <Loader2 className="w-4 h-4 animate-spin" />
+                                ) : (
+                                  '删除'
+                                )}
+                              </AlertDialogAction>
+                            </AlertDialogFooter>
+                          </AlertDialogContent>
+                        </AlertDialog>
+                      </div>
+                    </CardContent>
+                  </Card>
+                )
+              })}
+            </div>
+          )}
+        </TabsContent>
+
+        {/* 统计 Tab */}
+        <TabsContent value="stats" className="space-y-6 mt-6">
+          {/* 时间范围选择 */}
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <Calendar className="w-4 h-4 text-muted-foreground" />
+              <span className="text-sm text-muted-foreground">统计周期:</span>
+              <Select value={statsDays.toString()} onValueChange={(v) => setStatsDays(parseInt(v))}>
+                <SelectTrigger className="w-32">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="7">最近7天</SelectItem>
+                  <SelectItem value="14">最近14天</SelectItem>
+                  <SelectItem value="30">最近30天</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <Button variant="outline" size="sm" onClick={loadStats} disabled={isLoadingStats}>
+              {isLoadingStats ? <Loader2 className="w-4 h-4 animate-spin" /> : '刷新'}
+            </Button>
+          </div>
+
+          {isLoadingStats ? (
+            <Card>
+              <CardContent className="flex items-center justify-center py-12">
+                <Loader2 className="w-8 h-8 animate-spin text-muted-foreground" />
+              </CardContent>
+            </Card>
+          ) : !stats ? (
+            <Card>
+              <CardContent className="flex flex-col items-center justify-center py-12">
+                <BarChart3 className="w-12 h-12 text-muted-foreground mb-4" />
+                <p className="text-muted-foreground">暂无统计数据</p>
+              </CardContent>
+            </Card>
+          ) : (
+            <>
+              {/* 核心指标卡片 */}
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                <Card>
+                  <CardContent className="pt-6">
+                    <div className="flex items-center gap-2 text-muted-foreground mb-2">
+                      <Zap className="w-4 h-4" />
+                      <span className="text-sm">总调用次数</span>
+                    </div>
+                    <div className="text-2xl font-bold">{formatNumber(stats.summary.totalCalls)}</div>
+                    <div className="text-xs text-muted-foreground mt-1">
+                      成功率 {stats.summary.successRate}%
+                    </div>
+                  </CardContent>
+                </Card>
+                <Card>
+                  <CardContent className="pt-6">
+                    <div className="flex items-center gap-2 text-muted-foreground mb-2">
+                      <TrendingUp className="w-4 h-4" />
+                      <span className="text-sm">Token用量</span>
+                    </div>
+                    <div className="text-2xl font-bold">{formatNumber(stats.summary.totalTokens)}</div>
+                    <div className="text-xs text-muted-foreground mt-1">
+                      提示 {formatNumber(stats.summary.totalPromptTokens)} / 完成 {formatNumber(stats.summary.totalCompletionTokens)}
+                    </div>
+                  </CardContent>
+                </Card>
+                <Card>
+                  <CardContent className="pt-6">
+                    <div className="flex items-center gap-2 text-muted-foreground mb-2">
+                      <Clock className="w-4 h-4" />
+                      <span className="text-sm">平均响应时间</span>
+                    </div>
+                    <div className="text-2xl font-bold">{formatDuration(stats.summary.avgResponseTime)}</div>
+                    <div className="text-xs text-muted-foreground mt-1">
+                      基于成功调用
+                    </div>
+                  </CardContent>
+                </Card>
+                <Card>
+                  <CardContent className="pt-6">
+                    <div className="flex items-center gap-2 text-muted-foreground mb-2">
+                      <AlertCircle className="w-4 h-4" />
+                      <span className="text-sm">失败/超时</span>
+                    </div>
+                    <div className="text-2xl font-bold text-destructive">
+                      {stats.summary.failedCalls + stats.summary.timeoutCalls}
+                    </div>
+                    <div className="text-xs text-muted-foreground mt-1">
+                      失败 {stats.summary.failedCalls} / 超时 {stats.summary.timeoutCalls}
+                    </div>
+                  </CardContent>
+                </Card>
+              </div>
+
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                {/* 按服务商统计 */}
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="text-base">服务商统计</CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    {Object.keys(stats.providerStats).length === 0 ? (
+                      <p className="text-muted-foreground text-sm">暂无数据</p>
+                    ) : (
+                      <div className="space-y-3">
+                        {Object.entries(stats.providerStats).map(([provider, data]) => {
+                          const providerConfig = getProviderConfig(provider)
+                          return (
+                            <div key={provider} className="flex items-center justify-between p-3 rounded-lg bg-muted/50">
+                              <div className="flex items-center gap-3">
+                                <span className="text-xl">{providerConfig?.icon || '🤖'}</span>
+                                <div>
+                                  <div className="font-medium">{providerConfig?.name || provider}</div>
+                                  <div className="text-xs text-muted-foreground">
+                                    成功 {data.success} / 失败 {data.failed}
+                                  </div>
+                                </div>
+                              </div>
+                              <div className="text-right">
+                                <div className="font-medium">{formatNumber(data.calls)} 次</div>
+                                <div className="text-xs text-muted-foreground">
+                                  {formatNumber(data.tokens)} tokens
+                                </div>
+                              </div>
+                            </div>
+                          )
+                        })}
+                      </div>
+                    )}
+                  </CardContent>
+                </Card>
+
+                {/* 活跃用户 Top 10 */}
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="text-base flex items-center gap-2">
+                      <Users className="w-4 h-4" />
+                      活跃用户 Top 10
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    {stats.topUsers.length === 0 ? (
+                      <p className="text-muted-foreground text-sm">暂无数据</p>
+                    ) : (
+                      <div className="space-y-2">
+                        {stats.topUsers.map((item, index) => (
+                          <div key={item.user.id} className="flex items-center justify-between p-2 rounded-lg hover:bg-muted/50">
+                            <div className="flex items-center gap-3">
+                              <div className="w-6 h-6 rounded-full bg-primary/10 flex items-center justify-center text-xs font-medium">
+                                {index + 1}
+                              </div>
+                              <div>
+                                <div className="text-sm font-medium">{item.user.name}</div>
+                                <div className="text-xs text-muted-foreground">{item.user.email}</div>
+                              </div>
+                            </div>
+                            <div className="text-right text-sm">
+                              <span className="font-medium">{item.calls}</span>
+                              <span className="text-muted-foreground ml-1">次</span>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </CardContent>
+                </Card>
+              </div>
+
+              {/* 最近调用记录 */}
+              <Card>
+                <CardHeader>
+                  <CardTitle className="text-base">最近调用记录</CardTitle>
+                  <CardDescription>显示最近20条AI调用记录</CardDescription>
+                </CardHeader>
+                <CardContent>
+                  {stats.recentLogs.length === 0 ? (
+                    <p className="text-muted-foreground text-sm">暂无调用记录</p>
+                  ) : (
+                    <div className="space-y-2 max-h-96 overflow-y-auto">
+                      {stats.recentLogs.map(log => {
+                        const providerConfig = getProviderConfig(log.provider)
+                        return (
+                          <div key={log.id} className="flex items-center justify-between p-3 rounded-lg bg-muted/30 text-sm">
+                            <div className="flex items-center gap-3">
+                              <span>{providerConfig?.icon || '🤖'}</span>
+                              <div>
+                                <div className="font-medium">{log.model}</div>
+                                <div className="text-xs text-muted-foreground">
+                                  {new Date(log.createdAt).toLocaleString('zh-CN')}
+                                </div>
+                              </div>
+                            </div>
+                            <div className="flex items-center gap-4">
+                              <div className="text-right">
+                                <div className="text-xs text-muted-foreground">
+                                  {log.totalTokens} tokens
+                                </div>
+                                <div className="text-xs text-muted-foreground">
+                                  {formatDuration(log.responseTime)}
+                                </div>
+                              </div>
+                              {log.status === 'success' ? (
+                                <Badge variant="default" className="bg-green-600 text-xs">成功</Badge>
+                              ) : log.status === 'timeout' ? (
+                                <Badge variant="secondary" className="text-xs">超时</Badge>
+                              ) : (
+                                <Badge variant="destructive" className="text-xs">失败</Badge>
+                              )}
+                            </div>
+                          </div>
+                        )
+                      })}
+                    </div>
+                  )}
                 </CardContent>
               </Card>
-            )
-          })}
-        </div>
-      )}
+            </>
+          )}
+        </TabsContent>
+      </Tabs>
 
       {/* 添加/编辑对话框 */}
       <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>

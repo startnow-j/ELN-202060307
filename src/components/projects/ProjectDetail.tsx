@@ -18,6 +18,7 @@ import {
   CheckCircle,
   Archive,
   Unlock,
+  History,
 } from 'lucide-react'
 import { useApp, Project, Experiment } from '@/contexts/AppContext'
 import { useToast } from '@/hooks/use-toast'
@@ -28,6 +29,7 @@ import {
   ProjectMembersTab,
   ProjectDocumentsTab,
   ProjectExperimentsTab,
+  ProjectHistoryTab,
 } from './tabs'
 import {
   StatusChangeDialog,
@@ -525,6 +527,10 @@ export function ProjectDetail({ project, experiments, onBack, onViewExperiment }
               <FlaskConical className="w-4 h-4" />
               实验记录
             </TabsTrigger>
+            <TabsTrigger value="history" className="gap-2">
+              <History className="w-4 h-4" />
+              操作历史
+            </TabsTrigger>
           </TabsList>
 
           {/* 项目信息Tab */}
@@ -576,6 +582,11 @@ export function ProjectDetail({ project, experiments, onBack, onViewExperiment }
               experiments={experiments}
               onViewExperiment={onViewExperiment}
             />
+          </TabsContent>
+
+          {/* 操作历史Tab */}
+          <TabsContent value="history">
+            <ProjectHistoryTab projectId={project.id} />
           </TabsContent>
         </Tabs>
       </div>
